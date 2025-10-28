@@ -1,29 +1,41 @@
-name: Deploy Pages
+name: Deploy Pages (web)
+
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:   # ← هيدا اللي بظهر زر Run workflow
+  workflow_dispatch:
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 concurrency:
-  group: pages
+  group: "pages"
   cancel-in-progress: true
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./web
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # تفعيل إعدادات Pages
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      # رفع ملفات الموقع من مجلد web/
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./web
+
+      # النشر الفعلي
+      - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
+
