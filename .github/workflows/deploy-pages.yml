@@ -1,26 +1,29 @@
-name: Deploy Pages (web)
+name: Deploy Pages
 on:
   push:
-    branches: [ "main" ]
-    paths:
-      - "web/**"
-      - ".github/workflows/deploy-pages.yml"
+    branches: [ main ]
+  workflow_dispatch:   # ← هيدا اللي بظهر زر Run workflow
 permissions:
   contents: read
   pages: write
   id-token: write
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: true
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/upload-pages-artifact@v3
-        with: { path: "./web" }
+        with:
+          path: ./web
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
