@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>GoldSignalsX – Mobile</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b0f17">
+  <style>
+    :root{
+      --bg:#0b0f17; --fg:#e5e7eb; --muted:#9ca3af; --card:#111827; --card2:#0f172a; --accent:#f59e0b;
+      --ok:#10b981; --bad:#ef4444; --line:#1f2937
+    }
+    :root.light{
+      --bg:#f9fafb; --fg:#0b1220; --muted:#6b7280; --card:#ffffff; --card2:#f3f4f6; --accent:#ca8a04;
+      --ok:#059669; --bad:#dc2626; --line:#e5e7eb
+    }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Arial}
+    header{position:sticky;top:0;background:var(--card2);display:flex;align-items:center;justify-content:space-between;padding:10px 12px;z-index:20;border-bottom:1px solid var(--line)}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand .icon{font-size:20px} .brand h1{margin:0;font-size:16px} .brand .sub{font-size:12px;color:var(--muted);margin-top:2px}
+    .right{display:flex;align-items:center;gap:8px}
+    button, input, select{background:var(--card);border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:8px 10px}
+    button{cursor:pointer} .primary{background:var(--accent);color:#111827;border-color:transparent;font-weight:700}
+    .chip{border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:var(--card2)}
+    .card{background:var(--card);border-radius:16px;padding:12px;margin:10px;border:1px solid var(--line)}
+    .title{font-size:13px;color:var(--muted);margin-bottom:6px}
+    .value{font-size:20px;font-weight:800}
+    canvas{width:100%;height:280px;background:var(--card2);border-radius:12px}
+    .small{font-size:12px;color:var(--muted)}
+    /* Tabs */
+    nav.tabs{position:fixed;bottom:0;left:0;right:0;background:var(--card2);border-top:1px solid var(--line);display:flex;z-index:30}
+    nav.tabs button{flex:1;padding:10px;border-radius:0;border:none;border-right:1px solid var(--line);background:var(--card2);color:var(--fg)}
+    nav.tabs button.active{background:var(--accent);color:#111827;font-weight:800}
+nav.tabs button:hover{filter:brightness(1.1)}
+    main{padding-bottom:64px}
+    /* Mobile rows */
+    .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+    #log{white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--card2);padding:10px;border-radius:10px;max-height:200px;overflow:auto}
+  
+    /* Bottom sheet (toast) */
+    #toast{position:fixed;left:8px;right:8px;bottom:-200px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;z-index:40;box-shadow:0 10px 30px rgba(0,0,0,.35);transition:transform .35s, bottom .35s}
+    #toast.show{bottom:70px}
+    #toast .t-row{display:flex;align-items:center;gap:10px}
+    #toast .t-title{font-weight:800}
+    #toast .t-btn{margin-inline-start:auto;background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 10px}
+    /* Flash overlay */
+    #flash{position:fixed;inset:0;background:rgba(245,158,11,.2);pointer-events:none;opacity:0;transition:opacity .35s;z-index:35}
+    #flash.on{opacity:1}
+
+  
+.nice-table{width:100%;border-collapse:collapse}
+.nice-table th,.nice-table td{border:1px solid var(--line);padding:6px;text-align:center}
+.nice-table th{background:var(--card)}
+.nice-table tr:nth-child(even){background-color:rgba(255,255,255,.03)}
+.nice-table .pivot{color:#facc15;font-weight:800}
+.nice-table .res{color:#f87171}
+.nice-table .sup{color:#4ade80}
+
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="icon">🔱</div>
+      <div>
+        <h1>GoldSignalsX</h1>
+        <div class="sub">Smart Gold Trading Signals</div>
+      </div>
+    </div>
+    <div class="right">
+      <span class="chip">السعر: <b id="price">—</b></span>
+      <button id="themeBtn" title="تبديل الثيم">🌙</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Home / Chart -->
+    <section id="tab-home" class="tab card">
+      <div class="row">
+        <label>Worker URL</label>
+        <input id="base" size="28" placeholder="https://goldsignalsx-worker.yourname.workers.dev">
+        <button id="saveBase">حفظ</button>
+        <button id="btnPrice">تحديث السعر</button>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <div class="row" id="tfBar">
+          <button data-tf="1m" class="primary">1د</button>
+          <button data-tf="5m">5د</button>
+          <button data-tf="15m">15د</button>
+          <button data-tf="30m">30د</button>
+          <button data-tf="60m">60د</button>
+          <button data-tf="240m">240د</button>
+          <button data-tf="1d">يوم</button>
+        </div>
+        <label>Limit</label>
+        <input id="limit" type="number" min="300" max="5000" step="50" value="1200">
+        <button id="btnBars" class="primary">جلب الشموع</button>
+        <button id="btnCSV">CSV</button>
+      </div>
+
+      <div class="row" style="margin-top:6px;gap:10px"><span class="chip">الحالة: <b id="regimeTop">—</b></span><span class="chip">الوضع: <b id="modeTop">ذكي</b></span></div><div class="title" style="margin-top:8px">الشارت الحي</div>
+      <canvas id="chart"></canvas>
+      <div class="small">الأزرق = السعر الحي • الأبيض = دخول • الأحمر = SL • الأخضر = TP1/TP2</div>
+
+      <div class="row" style="gap:10px;margin-top:10px">
+        <label class="chip"><input id="showBB" type="checkbox" checked> BB</label>
+        <label class="chip"><input id="showMacd" type="checkbox" checked> MACD</label>
+        <label class="chip"><input id="showRsi" type="checkbox" checked> RSI</label>
+        <label class="chip"><input id="showStoch" type="checkbox"> Stoch</label>
+      </div>
+      <canvas id="macdPanel" style="margin-top:8px;height:140px"></canvas>
+      <canvas id="rsiPanel" style="margin-top:8px;height:120px"></canvas>
+      <canvas id="stochPanel" style="margin-top:8px;height:120px;display:none"></canvas>
+    </section>
+
+    <!-- Indicators -->
+    <section id="tab-ind" class="tab card" style="display:none">
+      <div class="title">المؤشرات</div>
+      <div class="row" style="gap:8px">
+        <span class="chip">ADX: <b id="adxVal">—</b></span>
+        <span class="chip">RSI(<span id="rsiPLabel">14</span>): <b id="rsiVal">—</b></span>
+        <span class="chip">MACD(<span id="macdFLabel">12</span>,<span id="macdSLabel">26</span>,<span id="macdSigLabel">9</span>): <b id="macdVal">—</b></span>
+        <span class="chip">Stoch(<span id="stochKLabel">14</span>,<span id="stochDLabel">3</span>): <b id="stochVal">—</b></span>
+        <span class="chip">EMA سريع: <b id="emaFast">—</b></span>
+        <span class="chip">EMA بطيء: <b id="emaSlow">—</b></span>
+        <span class="chip">BB Width%: <b id="bbWidth">—</b></span>
+        <span class="chip">Regime: <b id="regimeBadge">—</b></span>
+      </div>
+
+      <div class="title" style="margin-top:8px">اختيار الوضع</div><div class="row" style="gap:8px;margin-bottom:8px"><label class="chip"><input type="radio" name="mode" id="modeSmart" checked> ذكي (تلقائي)</label><label class="chip"><input type="radio" name="mode" id="modeFast"> سريع</label><label class="chip"><input type="radio" name="mode" id="modeSafe"> حذر</label></div><div class="title" style="margin-top:8px">إعدادات يدوية</div>
+      <div class="row" style="gap:10px">
+        <label class="chip">ATR
+          <select id="atrMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="atrPeriod" type="number" value="14" min="2" max="300" disabled>
+          <span>القيمة: <b id="atrVal">—</b></span>
+        </label>
+        <label class="chip">BB
+          <select id="bbMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="bbPeriod" type="number" value="20" min="5" max="400" disabled>
+          <input id="bbStd" type="number" value="2" min="0.5" max="6" step="0.5" disabled>
+          <span>MA:<b id="bbMA">—</b> U:<b id="bbUp">—</b> L:<b id="bbLo">—</b></span>
+        </label>
+        <label class="chip">EMA
+          <select id="emaMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="emaFastIn" type="number" value="10" min="2" max="200" disabled>
+          <input id="emaSlowIn" type="number" value="34" min="3" max="400" disabled>
+          <input id="emaOn" type="checkbox" checked> إدراج
+        </label>
+        <label class="chip">RSI
+          <select id="rsiMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="rsiPeriod" type="number" value="14" min="2" max="200" disabled>
+          <input id="rsiOn" type="checkbox" checked> إدراج
+        </label>
+        <label class="chip">MACD
+          <select id="macdMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="macdFast" type="number" value="12" min="2" max="200" disabled>
+          <input id="macdSlow" type="number" value="26" min="3" max="400" disabled>
+          <input id="macdSig" type="number" value="9" min="2" max="200" disabled>
+          <input id="macdOn" type="checkbox" checked> إدراج
+        </label>
+        <label class="chip">Stoch
+          <select id="stochMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="stochK" type="number" value="14" min="2" max="200" disabled>
+          <input id="stochD" type="number" value="3" min="1" max="200" disabled>
+          <input id="stochOn" type="checkbox" checked> إدراج
+        </label>
+      </div>
+    </section>
+
+    <!-- Advice -->
+    <section id="tab-adv" class="tab card" style="display:none">
+      <div class="title">نصيحة الدخول/الخروج</div>
+      <div id="adviceCard" class="card" style="background:var(--card2)">
+        <div class="value" id="adviceText">—</div>
+        <div class="row" style="margin-top:8px;gap:12px">
+          <span class="chip">الوثوقية: <b id="confVal">—</b></span>
+          <span class="chip">الدخول: <b id="entryVal">—</b></span>
+          <span class="chip" style="color:var(--ok);border-color:var(--ok)">TP1: <b id="tp1Val">—</b></span>
+          <span class="chip" style="color:var(--ok);border-color:var(--ok)">TP2: <b id="tp2Val">—</b></span>
+          <span class="chip" style="color:var(--bad);border-color:var(--bad)">SL: <b id="slVal">—</b></span>
+        </div>
+        <div class="title" style="margin-top:8px">الأسباب</div>
+        <ul id="reasonsList"></ul>
+        <div class="row" style="margin-top:8px">
+          <button id="btnNotify" class="primary">إرسال إلى تيليغرام</button>
+          <button id="btnRecalc">إعادة حساب</button>
+        </div>
+      </div>
+      <div class="title" style="margin-top:6px">Debug</div>
+      <label class="chip"><input id="dbgToggle" type="checkbox"> إظهار/إخفاء</label>
+      <div id="log" style="display:none"></div>
+    </section>
+
+    <!-- Backtest -->
+    <section id="tab-bt" class="tab card" style="display:none">
+      <div class="title">Backtest سريع</div>
+      <div class="row">
+        <button id="btnBacktest">تشغيل Backtest</button>
+        <input id="csvFile" type="file" accept=".csv">
+      </div>
+      <div class="row" style="gap:12px;margin-top:6px">
+        <span class="chip">الصفقات: <b id="btTrades">—</b></span>
+        <span class="chip">الربح الإجمالي: <b id="btPL">—</b></span>
+        <span class="chip">Win%: <b id="btWin">—</b></span>
+        <span class="chip">MaxDD: <b id="btDD">—</b></span>
+      </div>
+    
+<section id="tab-pivot" class="tab card" style="display:none">
+  <div class="title">📊 Pivot Levels</div>
+  <div class="small">تُحدَّث تلقائيًا حسب آخر شمعة والسعر الحي.</div>
+  <table class="nice-table" id="pivotTable" style="margin-top:8px">
+    <thead>
+      <tr><th>المستوى</th><th>القيمة</th><th>الفرق عن السعر</th><th>التفسير</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <div id="pivotPrice" class="small" style="margin-top:6px"></div>
+</section>
+
+  </main>
+
+  <nav class="tabs">
+    <button data-tab="home" class="active">📈 الشموع</button>
+    <button data-tab="ind">⚙️ المؤشرات</button>
+    <button data-tab="adv">💬 النصيحة</button>
+    <button data-tab="bt">🧪 Backtest</button>
+      <button data-tab="pivot">📊 Pivot Levels</button>
+  </nav>
+
+  <script type="module" src="./src/ui/app_mobile.js"></script>
+  <script type="module" src="./src/ui/panels.js"></script>
+  <script>
+    // Theme toggle
+    const btn = document.getElementById('themeBtn');
+    const apply = (mode)=>{ document.documentElement.classList.toggle('light', mode==='light'); btn.textContent = (mode==='light'?'🌞':'🌙'); localStorage.setItem('gsx.theme', mode); };
+    const saved = localStorage.getItem('gsx.theme') || 'dark'; apply(saved);
+    btn.addEventListener('click', ()=>{ const cur = document.documentElement.classList.contains('light')?'light':'dark'; apply(cur==='light'?'dark':'light'); });
+
+    // Tabs
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.addEventListener('click', ()=>{
+      document.querySelectorAll('nav.tabs button').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      const tab=b.dataset.tab;
+      document.querySelectorAll('main .tab').forEach(s=>s.style.display='none');
+      document.getElementById('tab-'+tab).style.display='block';
+      window.scrollTo({ top:0, behavior:'smooth' });
+    }));
+  </script>
+
+  <div id="flash"></div>
+  <div id="toast" role="status" aria-live="polite">
+    <div class="t-row">
+      <div>🔔</div>
+      <div style="flex:1">
+        <div class="t-title" id="toastTitle">تنبيه إشارة</div>
+        <div class="small" id="toastMsg">—</div>
+      </div>
+      <button class="t-btn" id="toastClose">إغلاق</button>
+    </div>
+  </div>
+
+
+  <!-- === GSX glue & charts bootstrap (non-invasive) === -->
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script>
+  (function(){
+    const $ = (s)=>document.querySelector(s);
+
+    // ---- Base URL save/load ----
+    const baseIn = document.getElementById('base');
+    const saveBtn = document.getElementById('saveBase');
+    const tfBar = document.getElementById('tfBar');
+    const limitIn = document.getElementById('limit');
+    const btnBars = document.getElementById('btnBars');
+    const btnCSV  = document.getElementById('btnCSV');
+    const priceEl = document.getElementById('price');
+
+    function getBase(){
+      const v = (baseIn && baseIn.value || '').trim();
+      return v || localStorage.getItem('GSX_BASE_URL') || localStorage.getItem('GSX_BASE') || '';
+    }
+    function setBase(v){
+      if (baseIn) baseIn.value = v;
+      try { localStorage.setItem('GSX_BASE_URL', v); } catch {}
+    }
+    if (saveBtn) saveBtn.addEventListener('click', ()=> setBase((baseIn && baseIn.value)||''));
+    if (baseIn && !baseIn.value){
+      const saved = getBase();
+      if (saved) baseIn.value = saved;
+    }
+
+    
+
+    const DEFAULT_BASE = 'https://goldsignalsx-worker.samer-mourtada.workers.dev';
+    // Ensure a base exists on first load for charts/backfill to work
+    (function ensureDefaultBase(){
+      const cur = getBase();
+      if (!cur) setBase(DEFAULT_BASE);
+      if (baseIn && !baseIn.value) baseIn.value = getBase();
+    })();
+
+// ---- TF buttons active state ----
+    let tf = '5m';
+    if (tfBar){
+      tfBar.querySelectorAll('button').forEach(b=>{
+        b.addEventListener('click', ()=>{
+          tfBar.querySelectorAll('button').forEach(x=>x.classList.remove('primary'));
+          b.classList.add('primary');
+          tf = b.dataset.tf || '5m';
+        });
+        if (b.classList.contains('primary')) tf = b.dataset.tf || '5m';
+      });
+    }
+
+    // ---- Minimal indicators (fallback) ----
+    function ema(arr, p){
+      const k = 2/(p+1);
+      let e, out=[];
+      arr.forEach((v,i)=>{ e = i ? (v-e)*k + e : v; out.push(e); });
+      return out;
+    }
+    function rsi(closes, p=14){
+      let gains=0, losses=0, out=[50];
+      for (let i=1;i<closes.length;i++){
+        const d = closes[i]-closes[i-1];
+        gains += Math.max(0,d); losses += Math.max(0,-d);
+        if (i>=p){
+          const rs = (gains/p)/((losses||1)/p);
+          out.push(100-(100/(1+rs)));
+          const d2 = closes[i-p+1]-closes[i-p];
+          gains -= Math.max(0,d2); losses -= Math.max(0,-d2);
+        } else out.push(50);
+      }
+      return out;
+    }
+
+    // ---- Charts (Lightweight Charts) ----
+    let chart, candle, rsiChart, rsiLine, macdChart, macdLine, stochChart, stochLine;
+    function ensureCharts(){
+      if (chart) return;
+      // main
+      const c = document.getElementById('chart');
+      if (c){
+        const wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.height = c.style.height || '420px';
+        c.replaceWith(wrap);
+        wrap.id = 'chartWrap';
+        chart = LightweightCharts.createChart(wrap, { layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb' }, rightPriceScale:{}, timeScale:{} });
+        candle = chart.addCandlestickSeries();
+      }
+      // rsi
+      const rsiP = document.getElementById('rsiPanel');
+      if (rsiP){
+        const wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.height = rsiP.style.height || '120px';
+        rsiP.replaceWith(wrap);
+        wrap.id = 'rsiWrap';
+        rsiChart = LightweightCharts.createChart(wrap, { layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb' }, timeScale:{} });
+        rsiLine = rsiChart.addLineSeries();
+      }
+      // macd (بديل سريع: close-ema)
+      const macdP = document.getElementById('macdPanel');
+      if (macdP){
+        const wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.height = macdP.style.height || '140px';
+        macdP.replaceWith(wrap);
+        wrap.id = 'macdWrap';
+        macdChart = LightweightCharts.createChart(wrap, { layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb' }, timeScale:{} });
+        macdLine = macdChart.addLineSeries();
+      }
+      // stoch (تقريب سريع)
+      const stochP = document.getElementById('stochPanel');
+      if (stochP){
+        const wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.height = stochP.style.height || '120px';
+        stochP.replaceWith(wrap);
+        wrap.id = 'stochWrap';
+        stochChart = LightweightCharts.createChart(wrap, { layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb' }, timeScale:{} });
+        stochLine = stochChart.addLineSeries();
+      }
+    }
+
+    // ---- Fetch bars from worker ----
+    async function readBars(base, tf, limit){
+      base = (base||'').replace(/\/+$/,'');
+      const url = base ? `${base}/bars?tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit)}` : '';
+      if (!url) return [];
+      const r = await fetch(url, { cache:'no-store' });
+      const t = await r.text();
+      try{
+        const j = JSON.parse(t);
+        if (Array.isArray(j)) return j;
+        if (j && Array.isArray(j.rows)) return j.rows;
+      }catch{}
+      // CSV fallback
+      const lines = t.trim().split(/\r?\n/).slice(1);
+      return lines.map(line=>{
+        const [time,o,h,l,c,v] = line.split(',');
+        return { t: Date.parse(time), o:+o, h:+h, l:+l, c:+c, v:+(v||0) };
+      });
+    }
+
+    function toCandleSeries(bars){
+      return bars.map(b=>({ time: Math.floor(b.t/1000), open:b.o, high:b.h, low:b.l, close:b.c }));
+    }
+
+    async function renderAll(){
+      const base = getBase();
+      const tfBtn = (tfBar && tfBar.querySelector('button.primary'));
+      const tf = tfBtn ? (tfBtn.dataset.tf || '5m') : '5m';
+      const L = Math.max(300, Math.min(+(limitIn && limitIn.value || 1200), 5000));
+      const bars = await readBars(base, tf, L);
+      if (!bars.length) return;
+      ensureCharts();
+      // main
+      if (candle) candle.setData(toCandleSeries(bars));
+      // simple RSI
+      const closes = bars.map(b=>b.c);
+      const rsiArr = rsi(closes, 14);
+      if (rsiLine) rsiLine.setData(bars.map((b,i)=>({ time: Math.floor(b.t/1000), value: rsiArr[i]||50 })));
+      // simple MACD proxy: close-ema20
+      const ema20 = ema(closes, 20);
+      if (macdLine) macdLine.setData(bars.map((b,i)=>({ time: Math.floor(b.t/1000), value: (closes[i]-(ema20[i]||closes[i])) })));
+      // simple Stoch proxy
+      if (stochLine) stochLine.setData(bars.map((b)=>({ time: Math.floor(b.t/1000), value: ((b.c-b.l)/(b.h-b.l||1))*100 })));
+      // CSV
+      if (btnCSV && base) btnCSV.onclick = ()=>{ location.href = base.replace(/\/+$/,'') + '/export.csv?tf=' + encodeURIComponent(tf); };
+    }
+
+    if (btnBars) btnBars.addEventListener('click', renderAll);
+    if (tfBar){
+      tfBar.querySelectorAll('button').forEach(b=> b.addEventListener('click', renderAll));
+    }
+
+    // price hook
+    
+    let __firstLivePrice = true;
+    window.setLivePrice = function(price, meta){
+      if (priceEl) priceEl.textContent = Number(price).toFixed(3);
+      if (__firstLivePrice) {
+        __firstLivePrice = false;
+        try { renderAll(); } catch (e) {}
+      }
+    };
+
+
+    // first paint
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderAll);
+    else renderAll();
+  })();
+  </script>
+
+</body>
+</html>
