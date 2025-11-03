@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>GoldSignalsX – Mobile</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b0f17">
+  <style>
+    :root{
+      --bg:#0b0f17; --fg:#e5e7eb; --muted:#9ca3af; --card:#111827; --card2:#0f172a; --accent:#f59e0b;
+      --ok:#10b981; --bad:#ef4444; --line:#1f2937
+    }
+    :root.light{
+      --bg:#f9fafb; --fg:#0b1220; --muted:#6b7280; --card:#ffffff; --card2:#f3f4f6; --accent:#ca8a04;
+      --ok:#059669; --bad:#dc2626; --line:#e5e7eb
+    }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Arial}
+    header{position:sticky;top:0;background:var(--card2);display:flex;align-items:center;justify-content:space-between;padding:10px 12px;z-index:20;border-bottom:1px solid var(--line)}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand .icon{font-size:20px} .brand h1{margin:0;font-size:16px} .brand .sub{font-size:12px;color:var(--muted);margin-top:2px}
+    .right{display:flex;align-items:center;gap:8px}
+    button, input, select{background:var(--card);border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:8px 10px}
+    button{cursor:pointer} .primary{background:var(--accent);color:#111827;border-color:transparent;font-weight:700}
+    .chip{border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:var(--card2)}
+    .card{background:var(--card);border-radius:16px;padding:12px;margin:10px;border:1px solid var(--line)}
+    .title{font-size:13px;color:var(--muted);margin-bottom:6px}
+    .value{font-size:20px;font-weight:800}
+    canvas{width:100%;height:280px;background:var(--card2);border-radius:12px}
+    .small{font-size:12px;color:var(--muted)}
+    /* Tabs */
+    nav.tabs{position:fixed;bottom:0;left:0;right:0;background:var(--card2);border-top:1px solid var(--line);display:flex;z-index:30}
+    nav.tabs button{flex:1;padding:10px;border-radius:0;border:none;border-right:1px solid var(--line);background:var(--card2);color:var(--fg)}
+    nav.tabs button.active{background:var(--accent);color:#111827;font-weight:800}
+nav.tabs button:hover{filter:brightness(1.1)}
+    main{padding-bottom:64px}
+    /* Mobile rows */
+    .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+    #log{white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--card2);padding:10px;border-radius:10px;max-height:200px;overflow:auto}
+  
+    /* Bottom sheet (toast) */
+    #toast{position:fixed;left:8px;right:8px;bottom:-200px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;z-index:40;box-shadow:0 10px 30px rgba(0,0,0,.35);transition:transform .35s, bottom .35s}
+    #toast.show{bottom:70px}
+    #toast .t-row{display:flex;align-items:center;gap:10px}
+    #toast .t-title{font-weight:800}
+    #toast .t-btn{margin-inline-start:auto;background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 10px}
+    /* Flash overlay */
+    #flash{position:fixed;inset:0;background:rgba(245,158,11,.2);pointer-events:none;opacity:0;transition:opacity .35s;z-index:35}
+    #flash.on{opacity:1}
+
+  
+.nice-table{width:100%;border-collapse:collapse}
+.nice-table th,.nice-table td{border:1px solid var(--line);padding:6px;text-align:center}
+.nice-table th{background:var(--card)}
+.nice-table tr:nth-child(even){background-color:rgba(255,255,255,.03)}
+.nice-table .pivot{color:#facc15;font-weight:800}
+.nice-table .res{color:#f87171}
+.nice-table .sup{color:#4ade80}
+
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="icon">🔱</div>
+      <div>
+        <h1>GoldSignalsX</h1>
+        <div class="sub">Smart Gold Trading Signals</div>
+      </div>
+    </div>
+    <div class="right">
+      <span class="chip">السعر: <b id="price">—</b>
+<div id="liveDateTime" class="small" style="opacity:.9;margin-top:2px">—</div></span>
+      <button id="themeBtn" title="تبديل الثيم">🌙</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Home / Chart -->
+    <section id="tab-home" class="tab card">
+      <div class="row">
+        <label>Worker URL</label>
+        <input id="base" size="28" placeholder="https://goldsignalsx-worker.yourname.workers.dev">
+        <button id="saveBase">حفظ</button>
+        <button id="btnPrice">تحديث السعر</button>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <div class="row" id="tfBar">
+          <button data-tf="1m" class="primary">1د</button>
+          <button data-tf="5m">5د</button>
+          <button data-tf="15m">15د</button>
+          <button data-tf="30m">30د</button>
+          <button data-tf="60m">60د</button>
+          <button data-tf="240m">240د</button>
+          <button data-tf="1d">يوم</button>
+        </div>
+        <label>Limit</label>
+        <input id="limit" type="number" min="300" max="5000" step="50" value="1200">
+        <button id="btnBars" class="primary">جلب الشموع</button>
+        <button id="btnCSV">CSV</button>
+      </div>
+
+      <div class="row" style="margin-top:6px;gap:10px"><span class="chip">الحالة: <b id="regimeTop">—</b></span><span class="chip">الوضع: <b id="modeTop">ذكي</b></span></div><div class="title" style="margin-top:8px">الشارت الحي</div>
+      <div class="title" style="margin-top:8px">حالة السوق</div>
+<div id="marketState" class="small" style="margin:-2px 0 8px 0;opacity:.95">الحالة: —</div>
+<canvas id="chart"></canvas>
+      <div class="small">الأزرق = السعر الحي • الأبيض = دخول • الأحمر = SL • الأخضر = TP1/TP2</div>
+
+      <div class="row" style="gap:10px;margin-top:10px">
+        <label class="chip"><input id="showBB" type="checkbox" checked> BB</label>
+        <label class="chip"><input id="showMacd" type="checkbox" checked> MACD</label>
+        <label class="chip"><input id="showRsi" type="checkbox" checked> RSI</label>
+        <label class="chip"><input id="showStoch" type="checkbox"> Stoch</label>
+      </div>
+      <canvas id="macdPanel" style="margin-top:8px;height:140px"></canvas>
+      <canvas id="rsiPanel" style="margin-top:8px;height:120px"></canvas>
+      <canvas id="stochPanel" style="margin-top:8px;height:120px;display:none"></canvas>
+    </section>
+
+    <!-- Indicators -->
+    <section id="tab-ind" class="tab card" style="display:none">
+      <div class="title">المؤشرات</div>
+      <div class="row" style="gap:8px">
+        <span class="chip">ADX: <b id="adxVal">—</b></span>
+        <span class="chip">RSI(<span id="rsiPLabel">14</span>): <b id="rsiVal">—</b></span>
+        <span class="chip">MACD(<span id="macdFLabel">12</span>,<span id="macdSLabel">26</span>,<span id="macdSigLabel">9</span>): <b id="macdVal">—</b></span>
+        <span class="chip">Stoch(<span id="stochKLabel">14</span>,<span id="stochDLabel">3</span>): <b id="stochVal">—</b></span>
+        <span class="chip">EMA سريع: <b id="emaFast">—</b></span>
+        <span class="chip">EMA بطيء: <b id="emaSlow">—</b></span>
+        <span class="chip">BB Width%: <b id="bbWidth">—</b></span>
+        <span class="chip">Regime: <b id="regimeBadge">—</b></span>
+      </div>
+
+      <div class="title" style="margin-top:8px">اختيار الوضع</div><div class="row" style="gap:8px;margin-bottom:8px"><label class="chip"><input type="radio" name="mode" id="modeSmart" checked> ذكي (تلقائي)</label><label class="chip"><input type="radio" name="mode" id="modeFast"> سريع</label><label class="chip"><input type="radio" name="mode" id="modeSafe"> حذر</label></div><div class="title" style="margin-top:8px">إعدادات يدوية</div>
+      <div class="row" style="gap:10px">
+        <label class="chip">ATR
+          <select id="atrMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="atrPeriod" type="number" value="14" min="2" max="300" disabled>
+          <span>القيمة: <b id="atrVal">—</b></span>
+        </label>
+        <label class="chip">BB
+          <select id="bbMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="bbPeriod" type="number" value="20" min="5" max="400" disabled>
+          <input id="bbStd" type="number" value="2" min="0.5" max="6" step="0.5" disabled>
+          <span>MA:<b id="bbMA">—</b> U:<b id="bbUp">—</b> L:<b id="bbLo">—</b></span>
+        </label>
+        <label class="chip">EMA
+          <select id="emaMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="emaFastIn" type="number" value="10" min="2" max="200" disabled>
+          <input id="emaSlowIn" type="number" value="34" min="3" max="400" disabled>
+          <input id="emaOn" type="checkbox" checked> إدراج
+        </label>
+        <label class="chip">RSI
+          <select id="rsiMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="rsiPeriod" type="number" value="14" min="2" max="200" disabled>
+          <input id="rsiOn" type="checkbox" checked> إدراج
+        </label>
+        <label class="chip">MACD
+          <select id="macdMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="macdFast" type="number" value="12" min="2" max="200" disabled>
+          <input id="macdSlow" type="number" value="26" min="3" max="400" disabled>
+          <input id="macdSig" type="number" value="9" min="2" max="200" disabled>
+          <input id="macdOn" type="checkbox" checked> إدراج
+        </label>
+        <label class="chip">Stoch
+          <select id="stochMode"><option value="auto" selected>تلقائي</option><option value="manual">يدوي</option></select>
+          <input id="stochK" type="number" value="14" min="2" max="200" disabled>
+          <input id="stochD" type="number" value="3" min="1" max="200" disabled>
+          <input id="stochOn" type="checkbox" checked> إدراج
+        </label>
+      </div>
+    </section>
+
+    <!-- Advice -->
+    <section id="tab-adv" class="tab card" style="display:none">
+      <div class="title">نصيحة الدخول/الخروج</div>
+      <div id="adviceCard" class="card" style="background:var(--card2)">
+        <div class="value" id="adviceText">—</div>
+        <div class="row" style="margin-top:8px;gap:12px">
+          <span class="chip">الوثوقية: <b id="confVal">—</b></span>
+          <span class="chip">الدخول: <b id="entryVal">—</b></span>
+          <span class="chip" style="color:var(--ok);border-color:var(--ok)">TP1: <b id="tp1Val">—</b></span>
+          <span class="chip" style="color:var(--ok);border-color:var(--ok)">TP2: <b id="tp2Val">—</b></span>
+          <span class="chip" style="color:var(--bad);border-color:var(--bad)">SL: <b id="slVal">—</b></span>
+        </div>
+        <div class="title" style="margin-top:8px">الأسباب</div>
+        <ul id="reasonsList"></ul>
+        <div class="row" style="margin-top:8px">
+          <button id="btnNotify" class="primary">إرسال إلى تيليغرام</button>
+          <button id="btnRecalc">إعادة حساب</button>
+        </div>
+      </div>
+      <div class="title" style="margin-top:6px">Debug</div>
+      <label class="chip"><input id="dbgToggle" type="checkbox"> إظهار/إخفاء</label>
+      <div id="log" style="display:none"></div>
+    </section>
+
+    <!-- Backtest -->
+    <section id="tab-bt" class="tab card" style="display:none">
+      <div class="title">Backtest سريع</div>
+      <div class="row">
+        <button id="btnBacktest">تشغيل Backtest</button>
+        <input id="csvFile" type="file" accept=".csv">
+      </div>
+      <div class="row" style="gap:12px;margin-top:6px">
+        <span class="chip">الصفقات: <b id="btTrades">—</b></span>
+        <span class="chip">الربح الإجمالي: <b id="btPL">—</b></span>
+        <span class="chip">Win%: <b id="btWin">—</b></span>
+        <span class="chip">MaxDD: <b id="btDD">—</b></span>
+      </div>
+    
+<section id="tab-pivot" class="tab card" style="display:none">
+  <div class="title">📊 Pivot Levels</div>
+  <div class="small">تُحدَّث تلقائيًا حسب آخر شمعة والسعر الحي.</div>
+  <table class="nice-table" id="pivotTable" style="margin-top:8px">
+    <thead>
+      <tr><th>المستوى</th><th>القيمة</th><th>الفرق عن السعر</th><th>التفسير</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <div id="pivotPrice" class="small" style="margin-top:6px"></div>
+</section>
+
+  </main>
+
+  <nav class="tabs">
+    <button data-tab="home" class="active">📈 الشموع</button>
+    <button data-tab="ind">⚙️ المؤشرات</button>
+    <button data-tab="adv">💬 النصيحة</button>
+    <button data-tab="bt">🧪 Backtest</button>
+      <button data-tab="pivot">📊 Pivot Levels</button>
+  </nav>
+
+  <script type="module" src="./src/ui/app_mobile.js"></script>
+  <script type="module" src="./src/ui/panels.js"></script>
+  <script>
+    // Theme toggle
+    const btn = document.getElementById('themeBtn');
+    const apply = (mode)=>{ document.documentElement.classList.toggle('light', mode==='light'); btn.textContent = (mode==='light'?'🌞':'🌙'); localStorage.setItem('gsx.theme', mode); };
+    const saved = localStorage.getItem('gsx.theme') || 'dark'; apply(saved);
+    btn.addEventListener('click', ()=>{ const cur = document.documentElement.classList.contains('light')?'light':'dark'; apply(cur==='light'?'dark':'light'); });
+
+    // Tabs
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.addEventListener('click', ()=>{
+      document.querySelectorAll('nav.tabs button').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      const tab=b.dataset.tab;
+      document.querySelectorAll('main .tab').forEach(s=>s.style.display='none');
+      document.getElementById('tab-'+tab).style.display='block';
+      window.scrollTo({ top:0, behavior:'smooth' });
+    }));
+  </script>
+
+  <div id="flash"></div>
+  <div id="toast" role="status" aria-live="polite">
+    <div class="t-row">
+      <div>🔔</div>
+      <div style="flex:1">
+        <div class="t-title" id="toastTitle">تنبيه إشارة</div>
+        <div class="small" id="toastMsg">—</div>
+      </div>
+      <button class="t-btn" id="toastClose">إغلاق</button>
+    </div>
+  </div>
+
+
+  <!-- === GSX glue & charts bootstrap (non-invasive) === -->
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script>
+  (function(){
+    const $ = (s)=>document.querySelector(s);
+
+    // ---- Base URL save/load ----
+    const baseIn = document.getElementById('base');
+    const saveBtn = document.getElementById('saveBase');
+    const tfBar = document.getElementById('tfBar');
+    const limitIn = document.getElementById('limit');
+    const btnBars = document.getElementById('btnBars');
+    const btnCSV  = document.getElementById('btnCSV');
+    const priceEl = document.getElementById('price');
+
+    function getBase(){
+      const v = (baseIn && baseIn.value || '').trim();
+      return v || localStorage.getItem('GSX_BASE_URL') || localStorage.getItem('GSX_BASE') || '';
+    }
+    function setBase(v){
+      if (baseIn) baseIn.value = v;
+      try { localStorage.setItem('GSX_BASE_URL', v); } catch {}
+    }
+    if (saveBtn) saveBtn.addEventListener('click', ()=> setBase((baseIn && baseIn.value)||''));
+    if (baseIn && !baseIn.value){
+      const saved = getBase();
+      if (saved) baseIn.value = saved;
+    }
+
+    
+
+    const DEFAULT_BASE = 'https://goldsignalsx-worker.samer-mourtada.workers.dev';
+    // Ensure a base exists on first load for charts/backfill to work
+    (function ensureDefaultBase(){
+      const cur = getBase();
+      if (!cur) setBase(DEFAULT_BASE);
+      if (baseIn && !baseIn.value) baseIn.value = getBase();
+    })();
+
+// ---- TF buttons active state ----
+    let tf = '5m';
+    if (tfBar){
+      tfBar.querySelectorAll('button').forEach(b=>{
+        b.addEventListener('click', ()=>{
+          tfBar.querySelectorAll('button').forEach(x=>x.classList.remove('primary'));
+          b.classList.add('primary');
+          tf = b.dataset.tf || '5m';
+        });
+        if (b.classList.contains('primary')) tf = b.dataset.tf || '5m';
+      });
+    }
+
+    // ---- Minimal indicators (fallback) ----
+    function ema(arr, p){
+      const k = 2/(p+1);
+      let e, out=[];
+      arr.forEach((v,i)=>{ e = i ? (v-e)*k + e : v; out.push(e); });
+      return out;
+    }
+    function rsi(closes, p=14){
+      let gains=0, losses=0, out=[50];
+      for (let i=1;i<closes.length;i++){
+        const d = closes[i]-closes[i-1];
+        gains += Math.max(0,d); losses += Math.max(0,-d);
+        if (i>=p){
+          const rs = (gains/p)/((losses||1)/p);
+          out.push(100-(100/(1+rs)));
+          const d2 = closes[i-p+1]-closes[i-p];
+          gains -= Math.max(0,d2); losses -= Math.max(0,-d2);
+        } else out.push(50);
+      }
+      return out;
+    }
+
+    // ---- Market State helpers (BB + ATR + ADX) ----
+    function sma(arr, p){
+      const out=[], q=[]; let sum=0;
+      for(let i=0;i<arr.length;i++){
+        q.push(arr[i]); sum+=arr[i];
+        if(q.length>p) sum-=q.shift();
+        out.push(q.length===p ? (sum/p) : null);
+      }
+      return out;
+    }
+    function std(arr, p, ma){
+      const out=[], q=[];
+      for(let i=0;i<arr.length;i++){
+        q.push(arr[i]); if(q.length>p) q.shift();
+        if(q.length===p){
+          const m = ma[i]; let s=0; for(const v of q) s+=(v-m)*(v-m);
+          out.push(Math.sqrt(s/p));
+        } else out.push(null);
+      }
+      return out;
+    }
+    function calcATR(bars, period=14){
+      const tr=[], out=[]; let atr=null;
+      for(let i=0;i<bars.length;i++){
+        const b=bars[i], prev=bars[i-1];
+        if(!prev){ tr.push(b.h-b.l); continue; }
+        const x1 = b.h - b.l;
+        const x2 = Math.abs(b.h - prev.c);
+        const x3 = Math.abs(b.l - prev.c);
+        const t = Math.max(x1,x2,x3);
+        tr.push(t);
+        if(i===period){ atr = tr.slice(0,period).reduce((a,b)=>a+b,0)/period; out.push(atr); }
+        else if(i>period){ atr = ((atr*(period-1)) + t)/period; out.push(atr); }
+      }
+      while(out.length < bars.length) out.unshift(null);
+      return out;
+    }
+    function calcBB(closes, period=20, mult=2){
+      const ma = sma(closes, period);
+      const s  = std(closes, period, ma);
+      const upper=[], lower=[];
+      for(let i=0;i<closes.length;i++){
+        if(ma[i]==null || s[i]==null){ upper.push(null); lower.push(null); continue; }
+        upper.push(ma[i] + mult*s[i]);
+        lower.push(ma[i] - mult*s[i]);
+      }
+      return { ma, upper, lower };
+    }
+    function calcADX(bars, period=14){
+      const len = bars.length;
+      const plusDM = Array(len).fill(0), minusDM = Array(len).fill(0), TR = Array(len).fill(0);
+      for(let i=1;i<len;i++){
+        const upMove   = bars[i].h - bars[i-1].h;
+        const downMove = bars[i-1].l - bars[i].l;
+        plusDM[i]  = (upMove>downMove && upMove>0) ? upMove : 0;
+        minusDM[i] = (downMove>upMove && downMove>0) ? downMove : 0;
+        const x1 = bars[i].h - bars[i].l;
+        const x2 = Math.abs(bars[i].h - bars[i-1].c);
+        const x3 = Math.abs(bars[i].l - bars[i-1].c);
+        TR[i] = Math.max(x1,x2,x3);
+      }
+      function wSmooth(src){
+        const out = Array(len).fill(null);
+        let s = 0; for(let i=1;i<=period;i++) s += src[i]||0;
+        out[period] = s;
+        for(let i=period+1;i<len;i++) out[i] = out[i-1] - (out[i-1]/period) + (src[i]||0);
+        return out;
+      }
+      const trN = wSmooth(TR), pN=wSmooth(plusDM), mN=wSmooth(minusDM);
+      const plusDI = Array(len).fill(null), minusDI=Array(len).fill(null), DX=Array(len).fill(null);
+      for(let i=period;i<len;i++){
+        if(!trN[i]){ plusDI[i]=minusDI[i]=DX[i]=null; continue; }
+        plusDI[i]  = 100 * (pN[i]/trN[i]);
+        minusDI[i] = 100 * (mN[i]/trN[i]);
+        const s = plusDI[i] + minusDI[i]; DX[i] = s ? (100 * Math.abs(plusDI[i]-minusDI[i]) / s) : 0;
+      }
+      const ADX = Array(len).fill(null);
+      let seed=0, count=0, start=-1;
+      for(let i=0;i<len;i++){ if(DX[i]!=null){ seed+=DX[i]; count++; if(count==period){ ADX[i]=seed/period; start=i; break;} } }
+      for(let i=start+1;i<len;i++){ if(DX[i]!=null) ADX[i] = ((ADX[i-1]*(period-1)) + DX[i]) / period; }
+      return { plusDI, minusDI, ADX };
+    }
+    function marketStateFromBBATRADX(bars, {bbP=20, bbK=2, atrP=14, adxP=14}={}){
+      if(!bars || bars.length<Math.max(bbP, atrP, adxP)+2) return {state:'—'};
+      const closes = bars.map(b=>b.c);
+      const { ma, upper, lower } = calcBB(closes, bbP, bbK);
+      const atrArr = calcATR(bars, atrP);
+      const { ADX, plusDI, minusDI } = calcADX(bars, adxP);
+      const i = closes.length-1;
+      const C = closes[i], U = upper[i], L = lower[i], M = ma[i];
+      const ATR = atrArr[i], adx = ADX[i], pdi = plusDI[i], mdi = minusDI[i];
+      if(U==null || L==null || !isFinite(C)) return {state:'—'};
+      const bandwidthPct = ((U - L) / C) * 100;
+      const atrPct = isFinite(ATR) && C>0 ? (ATR / C) * 100 : NaN;
+      const Mprev = ma[i-1];
+      const slopePct = (Mprev!=null && M!=null && Mprev!==0) ? ((M - Mprev)/Mprev)*100 : 0;
+      const pos = (C - L) / Math.max(1e-9, (U - L));
+      const BW_TIGHT = 1.2, BW_WIDE=1.8, SLOPE_OK=0.03, ATR_OK=0.8, ATR_LOW=0.5, ADX_TREND=22;
+      let state = 'حيادي';
+      const trendBias = (pdi!=null && mdi!=null) ? (pdi>mdi ? 'صاعد' : 'هابط') : (slopePct>0?'صاعد':'هابط');
+      if (bandwidthPct < BW_TIGHT && (isFinite(atrPct)? atrPct<ATR_LOW : true) && (adx==null || adx<ADX_TREND)){
+        state = 'رانج';
+      } else if (bandwidthPct > BW_WIDE && Math.abs(slopePct) > SLOPE_OK && (isFinite(atrPct)? atrPct>ATR_OK : true) && (adx==null || adx>=ADX_TREND)){
+        state = `ترند ${trendBias}`;
+      } else {
+        if (adx!=null && adx>=ADX_TREND) state = `ترند ${trendBias}`;
+        else state = 'رانج';
+      }
+      return { state, bandwidthPct, atrPct, adx, pdi, mdi, slopePct, pos, U, L, M, C };
+    }
+    function updateMarketStateLine(bars){
+      try{
+        const ms = marketStateFromBBATRADX(bars);
+        const el = document.getElementById('marketState');
+        if(!el || !ms) return;
+        const parts = [];
+        parts.push(`الحالة: ${ms.state}`);
+        if (isFinite(ms.bandwidthPct)) parts.push(`BB%: ${ms.bandwidthPct.toFixed(2)}`);
+        if (isFinite(ms.atrPct)) parts.push(`ATR%: ${ms.atrPct.toFixed(2)}`);
+        if (isFinite(ms.adx)) parts.push(`ADX: ${ms.adx.toFixed(1)}`);
+        el.textContent = parts.join(' • ');
+        el.style.color = (ms.state.includes('ترند')) ? 'var(--ok)' : 'var(--muted)';
+      }catch(e){}
+    }
+
+    // ---- Time formatting helper ----
+    function fmtLocalDateTimeSeconds(input){
+      try{
+        const d = (typeof input==='string' || typeof input==='number') ? new Date(input) : (input || new Date());
+        // Fallback if ISO string like "2025-10-30T12:34:56Z"
+        const dd = new Date(d);
+        const y = dd.getFullYear();
+        const m = String(dd.getMonth()+1).padStart(2,'0');
+        const day = String(dd.getDate()).padStart(2,'0');
+        const hh = String(dd.getHours()).padStart(2,'0');
+        const mm = String(dd.getMinutes()).padStart(2,'0');
+        const ss = String(dd.getSeconds()).padStart(2,'0');
+        return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+      }catch(e){ return '—'; }
+    }
+
+    // ---- Charts (Lightweight Charts) ----
+
+    // Compatibility fetcher: tries /bars first, then /ohlc (gold-ticks legacy)
+    async function fetchBarsCompat(base, tf, limit){
+      const B = String(base||'').replace(/\/+$/,''); // trim
+      if(!B) throw new Error('ضع رابط الووركر');
+      // try /bars
+      try{
+        const url = `${B}/bars?tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit)}`;
+        const r = await fetch(url, { cache:'no-store' });
+        if(r.ok){
+          const j = await r.json();
+          if(Array.isArray(j) && j.length) return j;
+        }
+      }catch(e){}
+      // fallback → /ohlc (expects tf seconds)
+      const tfMap = { '1m':60, '3m':180, '5m':300, '15m':900, '30m':1800, '1h':3600, '4h':14400, '1d':86400 };
+      const tfSec = tfMap[tf] || 300;
+      const url2 = `${B}/ohlc?tf=${tfSec}&lookback=${(limit||600)*tfSec}`;
+      const r2 = await fetch(url2, { cache:'no-store' });
+      if(!r2.ok) throw new Error('bars/ohlc fetch failed ' + r2.status);
+      const j2 = await r2.json();
+      // Convert to [{t,o,h,l,c,v}]
+      if(Array.isArray(j2)){
+        return j2.map(x=>({ t:x.t||x.time||x.ts||0, o:x.o, h:x.h, l:x.l, c:x.c, v:x.v||0 }));
+      }
+      if(j2 && Array.isArray(j2.data)){
+        return j2.data.map(x=>({ t:x.t||x.time||x.ts||0, o:x.o, h:x.h, l:x.l, c:x.c, v:x.v||0 }));
+      }
+      return [];
+    }
+
+    let chart, candle, rsiChart, rsiLine, macdChart, macdLine, stochChart, stochLine;
+    function ensureCharts(){
+      if (chart) return;
+      // main
+      const c = document.getElementById('chart');
+      if (c){
+        const wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.height = c.style.height || '420px';
+        c.replaceWith(wrap);
+        wrap.id = 'chartWrap';
+        chart = LightweightCharts.createChart(wrap, { layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb' }, rightPriceScale:{}, timeScale:{} });
+        candle = chart.addCandlestickSeries();
+      }
+      // rsi
+      const rsiP = document.getElementById('rsiPanel');
+      if (rsiP){
+        const wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.height = rsiP.style.height || '120px';
+        rsiP.replaceWith(wrap);
+        wrap.id = 'rsiWrap';
+        rsiChart = LightweightCharts.createChart(wrap, { layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb' }, timeScale:{} });
+        rsiLine = rsiChart.addLineSeries();
+      }
+      // macd (بديل سريع: close-ema)
+      const macdP = document.getElementById('macdPanel');
+      if (macdP){
+        const wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.height = macdP.style.height || '140px';
+        macdP.replaceWith(wrap);
+        wrap.id = 'macdWrap';
+        macdChart = LightweightCharts.createChart(wrap, { layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb' }, timeScale:{} });
+        macdLine = macdChart.addLineSeries();
+      }
+      // stoch (تقريب سريع)
+      const stochP = document.getElementById('stochPanel');
+      if (stochP){
+        const wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.height = stochP.style.height || '120px';
+        stochP.replaceWith(wrap);
+        wrap.id = 'stochWrap';
+        stochChart = LightweightCharts.createChart(wrap, { layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb' }, timeScale:{} });
+        stochLine = stochChart.addLineSeries();
+      }
+    }
+
+    // ---- Fetch bars from worker ----
+    async function readBars(base, tf, limit){
+      base = (base||'').replace(/\/+$/,'');
+      const url = base ? `${base}/bars?tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit)}` : '';
+      if (!url) return [];
+      const r = await fetch(url, { cache:'no-store' });
+      const t = await r.text();
+      try{
+        const j = JSON.parse(t);
+        if (Array.isArray(j)) return j;
+        if (j && Array.isArray(j.rows)) return j.rows;
+      }catch{}
+      // CSV fallback
+      const lines = t.trim().split(/\r?\n/).slice(1);
+      return lines.map(line=>{
+        const [time,o,h,l,c,v] = line.split(',');
+        return { t: Date.parse(time), o:+o, h:+h, l:+l, c:+c, v:+(v||0) };
+      });
+    }
+
+    function toCandleSeries(bars){
+      return bars.map(b=>({ time: Math.floor(b.t/1000), open:b.o, high:b.h, low:b.l, close:b.c }));
+    }
+
+    async function renderAll(){
+      const base = getBase();
+      const tfBtn = (tfBar && tfBar.querySelector('button.primary'));
+      const tf = tfBtn ? (tfBtn.dataset.tf || '5m') : '5m';
+      const L = Math.max(300, Math.min(+(limitIn && limitIn.value || 1200), 5000));
+      const bars = await readBars(base, tf, L);
+      if (!bars.length) return;
+      ensureCharts();
+      // main
+      if (candle) candle.setData(toCandleSeries(bars));
+      // simple RSI
+      const closes = bars.map(b=>b.c);
+      const rsiArr = rsi(closes, 14);
+      if (rsiLine) rsiLine.setData(bars.map((b,i)=>({ time: Math.floor(b.t/1000), value: rsiArr[i]||50 })));
+      // simple MACD proxy: close-ema20
+      const ema20 = ema(closes, 20);
+      if (macdLine) macdLine.setData(bars.map((b,i)=>({ time: Math.floor(b.t/1000), value: (closes[i]-(ema20[i]||closes[i])) })));
+      // simple Stoch proxy
+      if (stochLine) stochLine.setData(bars.map((b)=>({ time: Math.floor(b.t/1000), value: ((b.c-b.l)/(b.h-b.l||1))*100 })));
+      // CSV
+      if (btnCSV && base) btnCSV.onclick = ()=>{ location.href = base.replace(/\/+$/,'') + '/export.csv?tf=' + encodeURIComponent(tf); };
+    }
+
+    if (btnBars) btnBars.addEventListener('click', renderAll);
+    if (tfBar){
+      tfBar.querySelectorAll('button').forEach(b=> b.addEventListener('click', renderAll));
+    }
+
+    // price hook
+    
+    let __firstLivePrice = true;
+    window.setLivePrice = function(price, meta){
+      if (priceEl) priceEl.textContent = Number(price).toFixed(3);
+      if (__firstLivePrice) {
+        __firstLivePrice = false;
+        try { renderAll(); } catch (e) {}
+      (function(){
+        const dt = document.getElementById('liveDateTime');
+        if(!dt) return;
+        try{
+          // If we have lastMeta from previous fetch, use it; otherwise use now.
+          const baseTs = (typeof lastMeta!=='undefined' && lastMeta && (lastMeta.isoTime||lastMeta.ts)) ? (lastMeta.isoTime||lastMeta.ts) : Date.now();
+          dt.textContent = fmtLocalDateTimeSeconds(baseTs);
+        }catch(e){}
+      })();
+      }
+    };
+
+
+    // first paint
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderAll);
+    else renderAll();
+  })();
+  </script>
+
+<span id="livePrice" style="display:none"></span><span id="liveSource" style="display:none"></span><span id="liveTime" style="display:none"></span>
+
+  <!-- GSX Loading Spinner -->
+  <style>
+    #loadingSpinner {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.35); z-index: 9999; backdrop-filter: blur(1px);
+    }
+    #loadingSpinner .box {
+      padding: 14px 18px; border-radius: 12px; background: #0b0f17; color: #e5e7eb;
+      border: 1px solid #1f2937; font: 14px system-ui;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+    }
+    @keyframes gsxspin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
+    .spin { width:16px; height:16px; border:3px solid #334155; border-top-color:#60a5fa; border-radius:50%; display:inline-block; margin-inline-end:8px; animation: gsxspin 0.9s linear infinite; vertical-align:-3px; }
+  </style>
+  <div id="loadingSpinner" aria-hidden="true"><div class="box"><span class="spin"></span>جاري الجلب...</div></div>
+
+</body>
+
+  <!-- GSX module: safely wire fetch-bars with spinner -->
+  <script type="module">
+    let app;
+    try { app = await import('./src/ui/app_mobile.js'); } catch (e) { console.warn('GSX: cannot import app_mobile.js', e); app = {}; }
+    try { await import('./src/ui/panels.js'); } catch (e) { console.warn('GSX: panels.js optional', e); }
+
+    const $ = (sel)=> document.querySelector(sel);
+    const urlInput  = $('#worker') || $('#base') || $('#gs-worker') || $('#workerUrl');
+    const limitInput= $('#limit')  || $('#barsLimit') || $('#limitInput');
+    const fetchBtn  = document.querySelector('[data-action="fetch-bars"]') || $('#btnBars') || $('#fetchBtn') || document.querySelector('[data-action="bars"]');
+
+    const spinner = document.getElementById('loadingSpinner');
+    const showSpin = ()=> spinner && (spinner.style.display = 'flex');
+    const hideSpin = ()=> spinner && (spinner.style.display = 'none');
+
+    const activeTF = () => (document.querySelector('button[data-tf].active')?.dataset?.tf) || '1m';
+
+    async function readBarsSafe(base, tf, limit) {
+      if (typeof app.readBars === 'function') return app.readBars(base, tf, limit);
+      const u = `${base.replace(/\/+$/,'')}/bars?tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit||1200)}`;
+      const r = await fetch(u, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      return await r.json();
+    }
+    async function drawChartSafe(bars, opts){ if (typeof app.drawChart === 'function') return app.drawChart(bars, opts); }
+    async function drawIndicatorsSafe(bars, opts){ if (typeof app.drawIndicators === 'function') return app.drawIndicators(bars, opts); }
+    function setWorkerURLSafe(base){ if (typeof app.setWorkerURL === 'function') try { app.setWorkerURL(base); } catch {} }
+
+    async function renderAll(){
+      const base  = (urlInput?.value || '').trim();
+      const tf    = activeTF();
+      const limit = parseInt(limitInput?.value || '1200', 10);
+      if (!base) { alert('ضع Worker URL'); return; }
+      showSpin();
+      try {
+        setWorkerURLSafe(base);
+        const bars = await readBarsSafe(base, tf, limit);
+        await drawChartSafe(bars, { tf });
+        await drawIndicatorsSafe(bars, { rsi:true, macd:true, bb:true, stoch:false });
+      } catch(e){
+        console.error('GSX renderAll failed:', e);
+        alert('تعذّر جلب/رسم الشموع: ' + (e?.message || e));
+      } finally { hideSpin(); }
+    }
+
+    if (fetchBtn) fetchBtn.addEventListener('click', (ev)=>{ ev.preventDefault?.(); renderAll(); }, { passive:true });
+    window.GSX = Object.assign({}, window.GSX||{}, { renderAll });
+  </script>
+
+</html>
