@@ -271,28 +271,45 @@ nav.tabs button:hover{filter:brightness(1.1)}
   (function(){
     const $ = (s)=>document.querySelector(s);
 
-    // ---- Base URL save/load ----
-    const baseIn = document.getElementById('base');
-    const saveBtn = document.getElementById('saveBase');
-    const tfBar = document.getElementById('tfBar');
-    const limitIn = document.getElementById('limit');
-    const btnBars = document.getElementById('btnBars');
-    const btnCSV  = document.getElementById('btnCSV');
-    const priceEl = document.getElementById('price');
+ // ---- Base URL save/load ----
+const baseIn = document.getElementById('base');
+const saveBtn = document.getElementById('saveBase');
+const tfBar   = document.getElementById('tfBar');
+const limitIn = document.getElementById('limit');
+const btnBars = document.getElementById('btnBars');
+const btnCSV  = document.getElementById('btnCSV');
+const priceEl = document.getElementById('price');
 
-    function getBase(){
-      const v = (baseIn && baseIn.value || '').trim();
-      return v || localStorage.getItem('GSX_BASE_URL') || localStorage.getItem('GSX_BASE') || '';
-    }
-    function setBase(v){
-      if (baseIn) baseIn.value = v;
-      try { localStorage.setItem('GSX_BASE_URL', v); } catch {}
-    }
-    if (saveBtn) saveBtn.addEventListener('click', ()=> setBase((baseIn && baseIn.value)||''));
-    if (baseIn && !baseIn.value){
-      const saved = getBase();
-      if (saved) baseIn.value = saved;
-    }
+// نفس الديفولت تبع الـ Worker
+const DEFAULT_BASE = 'https://goldsignalsx-worker.samer-mourtada.workers.dev';
+
+function getBase() {
+  const v = (baseIn && baseIn.value || '').trim();
+  return (
+    v ||
+    (localStorage.getItem('GSX_BASE_URL') || '').trim() ||
+    (localStorage.getItem('GSX_BASE') || '').trim() ||
+    DEFAULT_BASE
+  );
+}
+
+function setBase(v) {
+  const clean = (v || '').trim() || DEFAULT_BASE;
+  if (baseIn) baseIn.value = clean;
+  try { localStorage.setItem('GSX_BASE_URL', clean); } catch {}
+}
+
+if (saveBtn) {
+  saveBtn.addEventListener('click', () => {
+    setBase((baseIn && baseIn.value) || DEFAULT_BASE);
+  });
+}
+
+if (baseIn && !baseIn.value) {
+  const saved = getBase();
+  if (saved) baseIn.value = saved;
+}
+
 
     
 
