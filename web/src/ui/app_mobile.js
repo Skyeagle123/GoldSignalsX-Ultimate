@@ -456,7 +456,7 @@ function setText(id, val, suffix = '') {
 // *** النسخة المعدّلة من updateStats: الحد الأدنى 15 شمعة ***
 function updateStats(bars) {
   // من هلق وطالع إذا في 15 شمعة أو أكتر منبلّش نحسب المؤشرات
-  if (!Array.isArray(bars) || bars.length < 15) {
+  if (!Array.isArray(bars) || bars.length < 5) {
     setText('atrVal', null);
     setText('atrPct', null);
     setText('bbWidth', null);
