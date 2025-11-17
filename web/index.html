@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>GoldSignalsX • Ultimate</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #05070b;
+      --card: #111822;
+      --accent: #f6a623;
+      --accent-soft: #f6a62322;
+      --text-main: #f5f5f5;
+      --text-muted: #9ca3af;
+      --danger: #f97373;
+      --success: #4ade80;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #141a23 0, #05070b 55%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+    }
+    .wrap {
+      width: 100%;
+      max-width: 1100px;
+      padding: 16px;
+    }
+    .card {
+      background: linear-gradient(145deg, #111827, #020617);
+      border-radius: 20px;
+      border: 1px solid #1f2937;
+      padding: 16px 16px 12px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.65);
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .title-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.3rem;
+      letter-spacing: 0.04em;
+    }
+    .subtitle {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .status-dot {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      background: #020617;
+      border-radius: 999px;
+      padding: 4px 10px;
+      border: 1px solid #1f2937;
+    }
+    .dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 10px #22c55e;
+    }
+    .status-text-conn { color: #bbf7d0; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr);
+      gap: 12px;
+    }
+    @media (max-width: 840px) {
+      .grid { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    .control-card {
+      background: rgba(15,23,42,0.9);
+      border-radius: 16px;
+      padding: 12px;
+      border: 1px solid #1f2937;
+    }
+    .control-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    select, input[type="text"], input[type="number"] {
+      background: #020617;
+      color: var(--text-main);
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      outline: none;
+      min-width: 0;
+    }
+    select:focus, input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent-soft);
+    }
+    .field-grow { flex: 1; }
+
+    .btn {
+      border: none;
+      border-radius: 999px;
+      padding: 8px 14px;
+      background: #020617;
+      color: var(--text-main);
+      cursor: pointer;
+      font-size: 0.8rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: transform 0.05s ease, box-shadow 0.05s ease, background 0.15s;
+      border: 1px solid #1f2937;
+      white-space: nowrap;
+    }
+    .btn span.icon { font-size: 1rem; }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(0,0,0,0.45);
+      background: #030712;
+    }
+    .btn:active { transform: translateY(0); box-shadow: none; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #111827;
+      border-color: #fbbf24;
+      box-shadow: 0 12px 25px rgba(250, 204, 21, 0.4);
+    }
+    .btn-primary:hover {
+      background: #facc15;
+    }
+
+    .btn-outline {
+      background: #020617;
+      color: var(--text-main);
+    }
+
+    .pill-group {
+      display: inline-flex;
+      gap: 6px;
+      padding: 3px;
+      border-radius: 999px;
+      background: #020617;
+      border: 1px solid #1f2937;
+    }
+    .pill {
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+    }
+    .pill.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .status-line {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      min-height: 1.2em;
+    }
+    .status-line strong { color: var(--accent); }
+
+    .chart-card {
+      background: #020617;
+      border-radius: 16px;
+      border: 1px solid #1f2937;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      height: 380px;
+    }
+    #chart-root {
+      flex: 1;
+      min-height: 220px;
+    }
+
+    .row-bottom {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .indicator-card {
+      flex: 1;
+      min-width: 220px;
+      background: #020617;
+      border-radius: 14px;
+      border: 1px solid #1f2937;
+      padding: 8px 10px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .indicator-card h3 {
+      margin: 0 0 4px;
+      font-size: 0.8rem;
+      color: var(--text-main);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 0.7rem;
+      background: #020617;
+      border: 1px solid #374151;
+    }
+    .badge.good { border-color: #4ade80; color: #bbf7d0; }
+    .badge.bad { border-color: #f97373; color: #fecaca; }
+    .pattern {
+      font-size: 0.76rem;
+      margin-top: 2px;
+    }
+  </style>
+
+  <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <header>
+        <div class="title-block">
+          <h1>GoldSignalsX • Ultimate</h1>
+          <div class="subtitle">
+            سعر حي + شموع يابانية + مؤشرات (EMA, RSI, Stoch, MACD) + نصيحة دخول/خروج
+          </div>
+        </div>
+        <div class="status-dot">
+          <span class="dot"></span>
+          <span class="status-text-conn" id="conn-status">متصل بالـ Worker</span>
+        </div>
+      </header>
+
+      <div class="grid">
+        <!-- Controls -->
+        <div class="control-card">
+          <div class="control-row">
+            <label for="tf-select">TF</label>
+            <select id="tf-select">
+              <option value="1m">1m</option>
+              <option value="5m">5m</option>
+              <option value="15m">15m</option>
+              <option value="30m">30m</option>
+              <option value="60m">1h</option>
+              <option value="240m">4h</option>
+              <option value="1d">D1</option>
+            </select>
+
+            <label for="limit-input">Limit</label>
+            <input id="limit-input" type="number" min="50" max="5000" value="800" style="width:90px" />
+
+          </div>
+
+          <div class="control-row">
+            <label for="worker-input">Worker URL</label>
+            <input
+              id="worker-input"
+              class="field-grow"
+              type="text"
+              value="https://goldsignalsx-worker.samer-mourtada.workers.dev"
+            />
+          </div>
+
+          <div class="control-row">
+            <button id="btn-price" class="btn btn-primary">
+              <span class="icon">💲</span>
+              <span>تحديث السعر الحي</span>
+            </button>
+
+            <button id="btn-bars" class="btn btn-outline">
+              <span class="icon">📊</span>
+              <span>جلب الشموع ورسم الشارت</span>
+            </button>
+          </div>
+
+          <div class="control-row">
+            <label>مود الإشارات</label>
+            <div class="pill-group" id="mode-group">
+              <button class="pill active" data-mode="fast">سريع</button>
+              <button class="pill" data-mode="smart">ذكي</button>
+              <button class="pill" data-mode="cautious">حذر</button>
+            </div>
+          </div>
+
+          <div class="control-row">
+            <label>حالة السوق</label>
+            <div class="pill-group" id="market-group">
+              <button class="pill active" data-market="auto">تلقائي</button>
+              <button class="pill" data-market="trend">ترند</button>
+              <button class="pill" data-market="range">رنج</button>
+              <button class="pill" data-market="choppy">حيادي</button>
+            </div>
+          </div>
+
+          <div id="status-line" class="status-line"></div>
+        </div>
+
+        <!-- Chart -->
+        <div class="chart-card">
+          <div id="chart-root"></div>
+        </div>
+      </div>
+
+      <div class="row-bottom">
+        <div class="indicator-card">
+          <h3>المؤشرات الفنية</h3>
+          <div>EMA 20 / EMA 50: <span id="ema-info">—</span></div>
+          <div>RSI 14: <span id="rsi-info">—</span></div>
+          <div>Stoch 14: <span id="stoch-info">—</span></div>
+          <div>MACD (12,26,9): <span id="macd-info">—</span></div>
+        </div>
+
+        <div class="indicator-card">
+          <h3>الشموع اليابانية</h3>
+          <div>آخر نمط: <span id="pattern-last">—</span></div>
+          <div class="pattern" id="pattern-extra"></div>
+          <div style="margin-top:5px;">
+            نصيحة سريعة:
+            <span id="advice-badge" class="badge">—</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>
