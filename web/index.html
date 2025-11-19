@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GoldSignalsX • Smart Advice</title>
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #020617;
+      color: #e5e7eb;
+      font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    }
+    header {
+      padding: 10px 14px;
+      border-bottom: 1px solid #111827;
+      background: #020617;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    header .title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e5e7eb;
+    }
+    header .badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      color: #9ca3af;
+    }
+    main {
+      padding: 10px 10px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .topRow {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    @media (min-width: 900px) {
+      main {
+        flex-direction: row;
+        align-items: flex-start;
+      }
+      .leftCol, .rightCol {
+        flex: 1;
+      }
+      .topRow {
+        flex-direction: row;
+      }
+    }
+    .card {
+      background: #020617;
+      border-radius: 14px;
+      border: 1px solid #111827;
+      padding: 10px 12px;
+    }
+    .cardTitle {
+      font-size: 13px;
+      font-weight: 600;
+      color: #93c5fd;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .livePrice {
+      font-size: 26px;
+      font-weight: 700;
+    }
+    .livePrice.up { color: #22c55e; }
+    .livePrice.down { color: #ef4444; }
+    .liveSub {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .pill {
+      font-size: 11px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      color: #9ca3af;
+      background: #020617;
+    }
+    .pill strong {
+      color: #e5e7eb;
+    }
+    #chartContainer {
+      height: 320px;
+      margin-top: 4px;
+    }
+    #chart {
+      width: 100%;
+      height: 100%;
+      background: #020617;
+    }
+    .smartText {
+      font-size: 13px;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+    .smartMain {
+      margin-bottom: 6px;
+    }
+    .smartExtra {
+      font-size: 12px;
+      color: #9ca3af;
+      border-top: 1px dashed #1f2937;
+      padding-top: 4px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      margin-inline-start: 4px;
+    }
+    .dot.long { background: #22c55e; }
+    .dot.short { background: #ef4444; }
+    .dot.flat { background: #9ca3af; }
+    .errorBox {
+      margin-top: 4px;
+      padding: 5px 7px;
+      border-radius: 8px;
+      border: 1px solid #7f1d1d;
+      background: #111827;
+      font-size: 12px;
+      color: #fecaca;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="title">GoldSignalsX • Smart Advice 1.0</div>
+  <div class="badge">worker: goldsignalsx-worker.samer-mourtada</div>
+</header>
+
+<main>
+  <div class="leftCol">
+    <!-- LIVE BLOCK + INDICATORS -->
+    <div class="card">
+      <div class="cardTitle">
+        <span>السعر الحي</span>
+        <span id="sourceLabel" style="font-size:11px;color:#9ca3af;">—</span>
+      </div>
+      <div id="livePrice" class="livePrice">—</div>
+      <div id="liveSub" class="liveSub">آخر تحديث: —</div>
+      <div class="row" id="miniIndicators">
+        <!-- EMA / RSI / ATR / BB width pills -->
+      </div>
+      <div id="liveError" class="errorBox"></div>
+    </div>
+
+    <!-- SMART ADVICE -->
+    <div class="card" style="margin-top:10px;">
+      <div class="cardTitle">
+        <span>SMART ADVICE (Entry / SL / TP1 / TP2)</span>
+        <span id="signalDot" class="dot flat"></span>
+      </div>
+      <div class="smartText">
+        <div id="smartMain" class="smartMain">… في انتظار البيانات …</div>
+        <div id="smartExtra" class="smartExtra"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rightCol">
+    <!-- CHART -->
+    <div class="card" id="chartCard">
+      <div class="cardTitle">
+        <span>شارت 1 دقيقة (Close + EMA21)</span>
+        <span id="barsInfo" style="font-size:11px;color:#9ca3af;">—</span>
+      </div>
+      <div id="chartContainer">
+        <canvas id="chart"></canvas>
+      </div>
+      <div id="barsError" class="errorBox"></div>
+    </div>
+  </div>
+</main>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+const WORKER_BASE = "https://goldsignalsx-worker.samer-mourtada.workers.dev";
+
+// =============== LIVE PRICE ===============
+let lastPrice = null;
+
+async function fetchLivePrice() {
+  const liveEl = document.getElementById("livePrice");
+  const subEl  = document.getElementById("liveSub");
+  const srcEl  = document.getElementById("sourceLabel");
+  const errEl  = document.getElementById("liveError");
+
+  try {
+    errEl.style.display = "none";
+    const r = await fetch(WORKER_BASE + "/price", { cache: "no-store" });
+    const j = await r.json();
+    if (!j || !j.ok || !Number.isFinite(j.price)) {
+      throw new Error("invalid price payload");
+    }
+    const p = Number(j.price);
+    const ts = j.ts ? new Date(j.ts) : new Date();
+
+    if (lastPrice != null) {
+      if (p > lastPrice) {
+        liveEl.classList.add("up");
+        liveEl.classList.remove("down");
+      } else if (p < lastPrice) {
+        liveEl.classList.add("down");
+        liveEl.classList.remove("up");
+      }
+    }
+    lastPrice = p;
+
+    liveEl.textContent = p.toFixed(2);
+    subEl.textContent = "آخر تحديث: " + ts.toLocaleTimeString();
+    srcEl.textContent = "source: " + (j.source || "worker");
+
+    return p;
+  } catch (e) {
+    errEl.textContent = "خطأ في جلب السعر الحي من /price";
+    errEl.style.display = "block";
+    return null;
+  }
+}
+
+// =============== BARS + INDICATORS + ADVICE ===============
+let chart = null;
+
+async function fetchBarsAndDraw() {
+  const errEl = document.getElementById("barsError");
+  const infoEl = document.getElementById("barsInfo");
+  try {
+    errEl.style.display = "none";
+    const r = await fetch(WORKER_BASE + "/bars?tf=1m&limit=500", { cache: "no-store" });
+    const rows = await r.json();
+    if (!Array.isArray(rows) || !rows.length) {
+      throw new Error("no bars");
+    }
+
+    // OHLC
+    const ohlc = rows.map(b => ({
+      t: b.t,
+      o: b.o,
+      h: b.h,
+      l: b.l,
+      c: b.c,
+      v: b.v
+    }));
+    const closes = ohlc.map(b => b.c);
+
+    // Indicators
+    const ema21  = calcEMA(closes, 21);
+    const rsi14  = calcRSI(closes, 14);
+    const atr14  = calcATR(ohlc, 14);
+    const bbRes  = calcBB(closes, 20);
+
+    // آخر قيم
+    const lastEma  = ema21.at(-1);
+    const lastRsi  = rsi14.at(-1);
+    const lastAtr  = atr14.at(-1);
+    const lastBBW  = bbRes.width.at(-1);
+
+    updateMiniIndicators(lastEma, lastRsi, lastAtr, lastBBW);
+
+    // رسم الشارت
+    drawChart(ohlc, ema21);
+
+    infoEl.textContent = "عدد الشموع: " + rows.length;
+
+    // نصيحة ذكية
+    const live = lastPrice;
+    const smart = buildSmartText({
+      ema21: lastEma,
+      rsi14: lastRsi,
+      atr14: lastAtr,
+      bbWidth: lastBBW,
+      livePrice: live,
+      lastClose: closes.at(-1)
+    });
+
+    const mainEl  = document.getElementById("smartMain");
+    const extraEl = document.getElementById("smartExtra");
+    const dotEl   = document.getElementById("signalDot");
+
+    mainEl.textContent  = smart.main;
+    extraEl.textContent = smart.extra || "";
+    dotEl.className = "dot " + (
+      smart.signal === "Long" ? "long" :
+      smart.signal === "Short" ? "short" :
+      "flat"
+    );
+
+  } catch (e) {
+    errEl.textContent = "خطأ في جلب الشموع من /bars أو في الرسم.";
+    errEl.style.display = "block";
+  }
+}
+
+// =============== SMART ADVICE (A + OnlyWhenSignal) ===============
+function buildSmartText({
+  ema21,
+  rsi14,
+  atr14,
+  bbWidth,
+  livePrice,
+  lastClose,
+}) {
+  // 1) تأكد من توفر المؤشرات
+  if (
+    ema21 == null ||
+    rsi14 == null ||
+    atr14 == null ||
+    bbWidth == null
+  ) {
+    return {
+      main: "لا يمكن إصدار نصيحة الآن — البيانات غير مكتملة (EMA / RSI / ATR / BB).",
+      extra: "",
+      signal: "No Trade",
+    };
+  }
+
+  // 2) السعر المستخدم
+  const price = livePrice || lastClose;
+  if (!price || isNaN(price)) {
+    return {
+      main: "لا يوجد سعر واضح الآن، لا يمكن تحديد نقطة دخول.",
+      extra: "",
+      signal: "No Trade",
+    };
+  }
+
+  // 3) نسبة البعد عن EMA21
+  const diffPerc = ((price - ema21) / ema21) * 100;
+  const absDiff  = Math.abs(diffPerc);
+
+  // 4) فلتر RSI — نسمح فقط لما RSI تقريبًا ضمن 35–65
+  if (rsi14 > 70 || rsi14 < 30) {
+    const side = rsi14 > 70 ? "شرائي" : "بيعي";
+    return {
+      main:
+        "RSI في حالة تشبّع " +
+        side +
+        " قوي؛ يُفضّل الانتظار قبل أي دخول جديد.",
+      extra: "انتظر عودة RSI للمنطقة 40–60 قبل التفكير بصفقة.",
+      signal: "No Trade",
+    };
+  }
+
+  // 5) إذا السعر ملزق بالـ EMA → سوق حيادي، لا نصيحة دخول
+  if (absDiff < 0.15) {
+    return {
+      main:
+        "السعر قريب جدًا من EMA21؛ لا توجد أفضلية واضحة للدخول (سوق جانبي تقريبًا).",
+      extra: "انتظر ابتعاد السعر عن EMA21 أو ظهور شمعة قوية عند حد مهم.",
+      signal: "Sideways",
+    };
+  }
+
+  // 6) لو ATR صفر تقريبًا → لا حركة، لا صفقة
+  if (!atr14 || atr14 <= 0) {
+    return {
+      main:
+        "التذبذب (ATR) ضعيف جدًا؛ الحركة الحالية لا تدعم صفقة واضحة.",
+      extra: "انتظر زيادة في التذبذب قبل الدخول.",
+      signal: "No Trade",
+    };
+  }
+
+  // 7) اتجاه الصفقة من علاقة السعر مع EMA21
+  let direction;
+  if (diffPerc > 0) {
+    direction = "long";  // شراء
+  } else {
+    direction = "short"; // بيع
+  }
+
+  // 8) إعدادات المخاطرة
+  const atr      = atr14;
+  const SLmult   = 1.2;
+  const TP1mult  = 1.2;
+  const TP2mult  = 2.4;
+
+  const entry = price;
+  let sl, tp1, tp2;
+  let mainText = "";
+  let extra = "";
+  let signal = "";
+
+  if (direction === "long") {
+    sl  = entry - atr * SLmult;
+    tp1 = entry + atr * TP1mult;
+    tp2 = entry + atr * TP2mult;
+    signal = "Long";
+
+    mainText =
+      "🟢 صفقة شراء مقترحة (تجريبية)\n" +
+      "دخول تقريبي: " + entry.toFixed(2) + "\n" +
+      "وقف الخسارة: " + sl.toFixed(2) + "\n" +
+      "TP1 (هدف أول): " + tp1.toFixed(2) + "\n" +
+      "TP2 (هدف ثانٍ): " + tp2.toFixed(2);
+
+  } else {
+    sl  = entry + atr * SLmult;
+    tp1 = entry - atr * TP1mult;
+    tp2 = entry - atr * TP2mult;
+    signal = "Short";
+
+    mainText =
+      "🔴 صفقة بيع مقترحة (تجريبية)\n" +
+      "دخول تقريبي: " + entry.toFixed(2) + "\n" +
+      "وقف الخسارة: " + sl.toFixed(2) + "\n" +
+      "TP1 (هدف أول): " + tp1.toFixed(2) + "\n" +
+      "TP2 (هدف ثانٍ): " + tp2.toFixed(2);
+  }
+
+  // 9) ملاحظات إضافية (BB + RSI + البعد عن EMA)
+  if (bbWidth < 0.4) {
+    extra +=
+      "بولنجر باندز ضيّقة (زنج)؛ الحركة القادمة بعد الاختراق قد تكون قوية. يُفضَّل انتظار شمعة كسر واضحة.\n";
+  } else if (bbWidth > 1.6) {
+    extra +=
+      "بولنجر باندز متّسعة؛ السوق في حركة قوية، انتبه لاحتمال انتهاء الموجة إذا بدأ الاتساع يخف.\n";
+  }
+
+  if (rsi14 > 60 && direction === "long") {
+    extra +=
+      "RSI مرتفع نسبيًا مع صفقة شراء؛ فكّر بتخفيف حجم العقد أو انتظار تصحيح بسيط.\n";
+  } else if (rsi14 < 40 && direction === "short") {
+    extra +=
+      "RSI منخفض نسبيًا مع صفقة بيع؛ فكّر بتخفيف حجم العقد أو انتظار ارتداد بسيط.\n";
+  }
+
+  const atrRatio = Math.abs(price - ema21) / atr;
+  if (atrRatio > 2.2) {
+    extra +=
+      "السعر بعيد عن EMA21 بأكثر من 2×ATR؛ احتمال الانعكاس قوي، فالحذر واجب.\n";
+  }
+
+  return {
+    main: mainText,
+    extra: extra.trim(),
+    signal,
+  };
+}
+
+// =============== MINI INDICATORS (PILLS) ===============
+function updateMiniIndicators(ema, rsi, atr, bbw) {
+  const row = document.getElementById("miniIndicators");
+  row.innerHTML = "";
+
+  function add(label, val, unit) {
+    if (val == null || isNaN(val)) return;
+    const pill = document.createElement("div");
+    pill.className = "pill";
+    pill.innerHTML = "<strong>" + label + ":</strong> " +
+      (unit === "%" ? val.toFixed(2) + "%" : val.toFixed(2));
+    row.appendChild(pill);
+  }
+
+  add("EMA21", ema, "");
+  add("RSI14", rsi, "");
+  add("ATR14", atr, "");
+  add("BB width", bbw, "%");
+}
+
+// =============== INDICATOR CALCS ===============
+function calcEMA(arr, period) {
+  const k = 2 / (period + 1);
+  const ema = [];
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i];
+    if (i < period) {
+      sum += p;
+      ema.push(null);
+    } else if (i === period) {
+      ema.push(sum / period);
+    } else {
+      ema.push(p * k + ema[i - 1] * (1 - k));
+    }
+  }
+  return ema;
+}
+
+function calcRSI(arr, period) {
+  const rsi = [];
+  let gains = 0, losses = 0;
+
+  for (let i = 1; i <= period; i++) {
+    const diff = arr[i] - arr[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
+    rsi.push(null);
+  }
+
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+
+  for (let i = period + 1; i < arr.length; i++) {
+    const diff = arr[i] - arr[i - 1];
+    avgGain = (avgGain * (period - 1) + (diff > 0 ? diff : 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
+    const RS = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    rsi.push(100 - 100 / (1 + RS));
+  }
+  return rsi;
+}
+
+function calcATR(ohlc, period) {
+  const trs = [];
+  for (let i = 1; i < ohlc.length; i++) {
+    const h = ohlc[i].h;
+    const l = ohlc[i].l;
+    const prevC = ohlc[i - 1].c;
+    const tr = Math.max(
+      h - l,
+      Math.abs(h - prevC),
+      Math.abs(l - prevC)
+    );
+    trs.push(tr);
+  }
+
+  const atr = [];
+  let sum = 0;
+  for (let i = 0; i < trs.length; i++) {
+    if (i < period) {
+      sum += trs[i];
+      atr.push(null);
+    } else if (i === period) {
+      atr.push(sum / period);
+    } else {
+      atr.push((atr[atr.length - 1] * (period - 1) + trs[i]) / period);
+    }
+  }
+  return atr;
+}
+
+function calcBB(arr, period) {
+  const middle = [];
+  const width  = [];
+  for (let i = 0; i < arr.length; i++) {
+    if (i < period) {
+      middle.push(null);
+      width.push(null);
+      continue;
+    }
+    const slice = arr.slice(i - period, i);
+    const m = slice.reduce((a, b) => a + b, 0) / period;
+    const variance = slice.reduce((a, b) => a + (b - m) ** 2, 0) / period;
+    const sd = Math.sqrt(variance);
+    const upper = m + 2 * sd;
+    const lower = m - 2 * sd;
+
+    middle.push(m);
+    width.push((upper - lower) / m * 100);
+  }
+  return { middle, width };
+}
+
+// =============== CHART ===============
+function drawChart(ohlc, ema21) {
+  const ctx = document.getElementById("chart").getContext("2d");
+  if (chart) chart.destroy();
+
+  const labels = ohlc.map(b => new Date(b.t).toLocaleTimeString());
+  const close  = ohlc.map(b => b.c);
+  const emaArr = ema21.map(v => v ?? null);
+
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Close",
+          data: close,
+          borderColor: "#22c55e",
+          borderWidth: 2,
+          tension: 0.2,
+          pointRadius: 0,
+        },
+        {
+          label: "EMA21",
+          data: emaArr,
+          borderColor: "#3b82f6",
+          borderWidth: 1.5,
+          tension: 0.2,
+          pointRadius: 0,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: {
+          labels: { color: "#9ca3af", font: { size: 11 } }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: "#6b7280", maxTicksLimit: 6 },
+          grid: { color: "#020617" }
+        },
+        y: {
+          ticks: { color: "#6b7280" },
+          grid: { color: "#020617" }
+        }
+      }
+    }
+  });
+}
+
+// =============== TIMERS ===============
+(async function init() {
+  await fetchLivePrice();
+  await fetchBarsAndDraw();
+  setInterval(fetchLivePrice, 2000);
+  setInterval(fetchBarsAndDraw, 4000);
+})();
+</script>
+
+</body>
+</html>
