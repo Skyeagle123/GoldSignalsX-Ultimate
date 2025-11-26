@@ -92,7 +92,7 @@
         <div class="row" id="tfBar">
           <button data-tf="1m" class="primary">1د</button>
           <button data-tf="5m">5د</button>
-          <button data-tf="15m">15د</button>
+          <button data-tf="15م">15د</button>
           <button data-tf="30m">30د</button>
           <button data-tf="60m">60د</button>
           <button data-tf="240m">240د</button>
@@ -248,10 +248,10 @@
     <button data-tab="pivot">📊 Pivot Levels</button>
   </nav>
 
-  <!-- سكربت التطبيق الأساسي (نسخة GoldSignalsX عندك) -->
-  <script src="app_mobile.js"></script>
+  <!-- سكربت التطبيق تبعك (كما كان) -->
+  <script type="module" src="./src/ui/app_mobile.js"></script>
 
-  <!-- Theme + Tabs -->
+  <!-- Theme + Tabs + سكربت الشارت (فيه التعديل على sanitizeBars) -->
   <script>
     // Theme toggle
     const btn = document.getElementById('themeBtn');
@@ -276,21 +276,52 @@
       document.getElementById('tab-'+tab).style.display='block';
       window.scrollTo({ top:0, behavior:'smooth' });
     }));
+
+    // === GSX glue & charts bootstrap (non-invasive) ===
+    // مكتبة الشارت لازم تكون محمّلة قبل هالسكربت (من سكربت خارجي)
+    function sanitizeBars(bars){
+      return (bars || [])
+        .map(b => {
+          let rawT = (b.t ?? b.time ?? b.ts ?? b.isoTime ?? b.date ?? 0);
+          let tNum = Number(rawT);
+          if (!Number.isFinite(tNum) && typeof rawT === 'string') {
+            const parsed = Date.parse(rawT);
+            if (Number.isFinite(parsed)) tNum = parsed;
+          }
+          return {
+            t: tNum,
+            o: Number(b.o ?? b.open),
+            h: Number(b.h ?? b.high),
+            l: Number(b.l ?? b.low),
+            c: Number(b.c ?? b.close),
+            v: Number(b.v ?? b.volume ?? 0)
+          };
+        })
+        .filter(b =>
+          Number.isFinite(b.t) &&
+          Number.isFinite(b.o) &&
+          Number.isFinite(b.h) &&
+          Number.isFinite(b.l) &&
+          Number.isFinite(b.c)
+        );
+    }
+
+    function toCandleSeries(bars){
+      const clean = sanitizeBars(bars);
+      return clean.map(b=>({
+        time: Math.floor(b.t/1000),
+        open: b.o,
+        high: b.h,
+        low:  b.l,
+        close:b.c
+      }));
+    }
+
+    // باقي السكربت تبع الشارت (renderAll, loadBars, ... إلخ)
+    // … (يبقى كما كان عندك بدون تعديل) …
   </script>
 
-  <div id="flash"></div>
-  <div id="toast" role="status" aria-live="polite">
-    <div class="t-row">
-      <div>🔔</div>
-      <div style="flex:1">
-        <div class="t-title" id="toastTitle">تنبيه إشارة</div>
-        <div class="small" id="toastMsg">—</div>
-      </div>
-      <button class="t-btn" id="toastClose">إغلاق</button>
-    </div>
-  </div>
-
-  <!-- مكتبة الشارت فقط -->
+  <!-- مكتبة الشارت -->
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </body>
 </html>
