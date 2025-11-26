@@ -248,9 +248,28 @@
     <button data-tab="pivot">📊 Pivot Levels</button>
   </nav>
 
-  <!-- سكربتات التطبيق -->
-  <script type="module" src="./src/ui/app_mobile.js"></script>
-  <script type="module" src="./src/ui/panels.js"></script>
+  <!-- عناصر مساعدة اختيارية للسعر الحي -->
+  <span id="livePrice" style="display:none"></span>
+  <span id="liveSource" style="display:none"></span>
+  <span id="liveTime" style="display:none"></span>
+
+  <div id="flash"></div>
+  <div id="toast" role="status" aria-live="polite">
+    <div class="t-row">
+      <div>🔔</div>
+      <div style="flex:1">
+        <div class="t-title" id="toastTitle">تنبيه إشارة</div>
+        <div class="small" id="toastMsg">—</div>
+      </div>
+      <button class="t-btn" id="toastClose">إغلاق</button>
+    </div>
+  </div>
+
+  <!-- مكتبة الشارت أولا -->
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+
+  <!-- سكربت التطبيق (نفس الملف app_mobile.js الموجود جنب index.html) -->
+  <script src="app_mobile.js"></script>
 
   <!-- Theme + Tabs -->
   <script>
@@ -278,20 +297,5 @@
       window.scrollTo({ top:0, behavior:'smooth' });
     }));
   </script>
-
-  <div id="flash"></div>
-  <div id="toast" role="status" aria-live="polite">
-    <div class="t-row">
-      <div>🔔</div>
-      <div style="flex:1">
-        <div class="t-title" id="toastTitle">تنبيه إشارة</div>
-        <div class="small" id="toastMsg">—</div>
-      </div>
-      <button class="t-btn" id="toastClose">إغلاق</button>
-    </div>
-  </div>
-
-  <!-- مكتبة الشارت فقط (بدون أي كود إضافي) -->
-  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </body>
 </html>
