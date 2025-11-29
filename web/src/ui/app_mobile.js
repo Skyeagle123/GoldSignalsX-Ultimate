@@ -111,7 +111,7 @@ const modeSafeEl  = $('#modeSafe');
 
 // ================== حالة عامة ==================
 
-const DEFAULT_BASE = 'https://alsx-worker.samer-mourtada.workers.dev';
+const DEFAULT_BASE = 'https://GoldSinalsX-worker.samer-mourtada.workers.dev';
 
 let lastBars = [];
 let lastLive = null;   // {price, ts, source}
