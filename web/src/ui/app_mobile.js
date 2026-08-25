@@ -777,12 +777,17 @@ function setBarsOnCharts(bars){
     close:b.c
   }));
   candleSeries.setData(data);
+  chart.timeScale().setVisibleLogicalRange({
+    from: Math.max(0, data.length - 100),
+    to: data.length + 5
+  });
 
   const closes = bars.map(b=>b.c);
   const rsiArr = calcRSI(closes, +(rsiPeriodEl?.value||14));
   if (rsiSeries){
     const d = bars.map((b,i)=>({ time:Math.floor(b.t/1000), value:rsiArr[i]??50 }));
     rsiSeries.setData(d);
+    rsiChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, d.length - 100), to: d.length + 5 });
   }
 
   const macdObj = calcMACD(closes,
@@ -793,12 +798,14 @@ function setBarsOnCharts(bars){
   if (macdSeries){
     const d = bars.map((b,i)=>({ time:Math.floor(b.t/1000), value:macdObj.macdLine[i]||0 }));
     macdSeries.setData(d);
+    macdChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, d.length - 100), to: d.length + 5 });
   }
 
   const stArr = calcStoch(closes, bars.map(b=>b.h), bars.map(b=>b.l), +(stochKEl?.value||14));
   if (stochSeries){
     const d = bars.map((b,i)=>({ time:Math.floor(b.t/1000), value:stArr[i]??50 }));
     stochSeries.setData(d);
+    stochChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, d.length - 100), to: d.length + 5 });
   }
 }
 
