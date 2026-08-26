@@ -1,4 +1,4 @@
-// app_mobile.js — GoldSignalsX • Advanced v6
+// app_mobile.js — GoldSignalsX • Advanced v7
 // يربط واجهة الموبايل مع ال Worker:
 //  - /price  → سعر حي
 //  - /bars   → شموع + مؤشرات + نصيحة + Pivot + Backtest
@@ -111,6 +111,7 @@ const btAvgREl    = $('#btAvgR');
 const btOosEl     = $('#btOos');
 const btAmbiguousEl = $('#btAmbiguous');
 const btSummaryEl = $('#btSummary');
+const btTableBody = $('#btTable tbody');
 
 // Pivot
 const pivotTableBody = $('#pivotTable tbody');
@@ -1916,8 +1917,54 @@ function runBacktestOnBars(bars,options={}){
 
   const summary=summarizeBacktestTrades(trades);
   const splitIndex=Math.floor(bars.length*0.7);
-  const oos=summarizeBacktestTrades(trades.filter(trade=>trade.signalIndex>=splitIndex));
-  return {...summary,oos,costUsd,tf,rows:bars.length,details:trades};
+  const oosDetails=trades.filter(trade=>trade.signalIndex>=splitIndex);
+  const oos=summarizeBacktestTrades(oosDetails);
+  return {...summary,oos,oosDetails,costUsd,tf,rows:bars.length,details:trades};
+}
+
+function selectedBacktestTimeframes(){
+  const selected=$$('.bt-tf:checked').map(el=>el.value).filter(tf=>TF_MS[tf]);
+  return selected.length?selected:['5m','15m','30m','60m'];
+}
+
+function formatProfitFactor(value){
+  return Number.isFinite(value)?value.toFixed(2):(value===Infinity?'∞':'—');
+}
+
+function renderBacktestResults(results,failures=[]){
+  const valid=results.filter(Boolean);
+  if (btTableBody) {
+    btTableBody.innerHTML='';
+    for(const res of valid){
+      const row=document.createElement('tr');
+      row.innerHTML=`<td>${res.tf}</td><td>${res.rows}</td><td>${res.trades}</td><td>${res.winPct.toFixed(1)}%</td><td>${res.netR>=0?'+':''}${res.netR.toFixed(2)}R</td><td>${res.maxDD.toFixed(2)}R</td><td>${formatProfitFactor(res.profitFactor)}</td><td>${res.oos.trades} • ${res.oos.netR>=0?'+':''}${res.oos.netR.toFixed(2)}R</td>`;
+      btTableBody.appendChild(row);
+    }
+    for(const failure of failures){
+      const row=document.createElement('tr');
+      row.innerHTML=`<td>${failure.tf}</td><td colspan="7" style="color:var(--bad)">${failure.message}</td>`;
+      btTableBody.appendChild(row);
+    }
+  }
+
+  const allTrades=valid.flatMap(res=>res.details||[]);
+  const allOos=valid.flatMap(res=>res.oosDetails||[]);
+  const total=summarizeBacktestTrades(allTrades);
+  const totalOos=summarizeBacktestTrades(allOos);
+  if (btTradesEl) btTradesEl.textContent=String(total.trades);
+  if (btPLEl) btPLEl.textContent=`${total.netR>=0?'+':''}${total.netR.toFixed(2)}R`;
+  if (btWinEl) btWinEl.textContent=total.winPct.toFixed(1)+'%';
+  if (btDDEl) btDDEl.textContent=total.maxDD.toFixed(2)+'R';
+  if (btPFEl) btPFEl.textContent=formatProfitFactor(total.profitFactor);
+  if (btAvgREl) btAvgREl.textContent=`${total.avgR>=0?'+':''}${total.avgR.toFixed(2)}R`;
+  if (btOosEl) btOosEl.textContent=`${totalOos.trades} صفقة • ${totalOos.winPct.toFixed(1)}% • ${totalOos.netR>=0?'+':''}${totalOos.netR.toFixed(2)}R`;
+  if (btAmbiguousEl) btAmbiguousEl.textContent=String(total.ambiguous);
+
+  if (btSummaryEl) {
+    const noTrades=valid.length && total.trades===0?' • الشروط الحالية لم تنتج صفقات مؤكدة ضمن البيانات المتوفرة.':'';
+    const failed=failures.length?` • تعذّر: ${failures.map(item=>item.tf).join('، ')}`:'';
+    btSummaryEl.textContent=`اختُبرت ${valid.length} فترة • الحالات الملتبسة تُحسب SL أولاً • النتائج تشمل Spread وSlippage.${noTrades}${failed}`;
+  }
 }
 
 function saveSignalSettings(){
@@ -2015,33 +2062,41 @@ function setupUI(){
 
   if (btnBacktest && csvFileEl){
     btnBacktest.addEventListener('click', async ()=>{
-      let bars = lastBars;
-      if (csvFileEl.files && csvFileEl.files[0]){
-        const text = await csvFileEl.files[0].text();
-        bars = parseCsv(text);
+      const oldText=btnBacktest.textContent;
+      btnBacktest.disabled=true;
+      btnBacktest.textContent='جاري جلب الشموع والاختبار…';
+      if (btSummaryEl) btSummaryEl.textContent='عم نختبر الفترات واحدة واحدة من دون صفقات متداخلة…';
+      try{
+        const options={spread:Number(btSpreadEl?.value||0),slippage:Number(btSlippageEl?.value||0)};
+        const results=[];
+        const failures=[];
+        if (csvFileEl.files && csvFileEl.files[0]){
+          const text=await csvFileEl.files[0].text();
+          const bars=parseCsv(text);
+          const tf=lastAnalysisTf||'1m';
+          const res=runBacktestOnBars(bars,{...options,tf});
+          if (res) results.push(res);
+          else failures.push({tf,message:'الملف يحتاج 80 شمعة صحيحة على الأقل'});
+        } else {
+          const base=getBase();
+          const limit=Math.max(300,Math.min(Number(limitIn?.value||1200),1200));
+          for(const tf of selectedBacktestTimeframes()){
+            try{
+              const frame=await fetchBarsFrame(base,tf,limit);
+              const res=runBacktestOnBars(frame.bars,{...options,tf});
+              if (res) results.push(res);
+              else failures.push({tf,message:`بيانات غير كافية (${frame.bars.length} شمعة)`});
+            }catch(error){
+              failures.push({tf,message:error?.message||'فشل جلب الشموع'});
+            }
+            await new Promise(resolve=>setTimeout(resolve,0));
+          }
+        }
+        renderBacktestResults(results,failures);
+      }finally{
+        btnBacktest.disabled=false;
+        btnBacktest.textContent=oldText;
       }
-      const tfBtn=tfBar?.querySelector('button.primary');
-      const tf=tfBtn?.dataset.tf||lastAnalysisTf||'1m';
-      const res = runBacktestOnBars(bars,{
-        tf,
-        spread:Number(btSpreadEl?.value||0),
-        slippage:Number(btSlippageEl?.value||0)
-      });
-      if (!res){
-        [btTradesEl,btPLEl,btWinEl,btDDEl,btPFEl,btAvgREl,btOosEl,btAmbiguousEl]
-          .filter(Boolean).forEach(el=>el.textContent='—');
-        if (btSummaryEl) btSummaryEl.textContent='نحتاج 80 شمعة مكتملة على الأقل.';
-        return;
-      }
-      btTradesEl.textContent = String(res.trades);
-      btPLEl.textContent     = `${res.netR>=0?'+':''}${res.netR.toFixed(2)}R`;
-      btWinEl.textContent    = res.winPct.toFixed(1)+'%';
-      btDDEl.textContent     = res.maxDD.toFixed(2)+'R';
-      if (btPFEl) btPFEl.textContent=Number.isFinite(res.profitFactor)?res.profitFactor.toFixed(2):'∞';
-      if (btAvgREl) btAvgREl.textContent=`${res.avgR>=0?'+':''}${res.avgR.toFixed(2)}R`;
-      if (btOosEl) btOosEl.textContent=`${res.oos.trades} صفقة • ${res.oos.winPct.toFixed(1)}% • ${res.oos.netR>=0?'+':''}${res.oos.netR.toFixed(2)}R`;
-      if (btAmbiguousEl) btAmbiguousEl.textContent=String(res.ambiguous);
-      if (btSummaryEl) btSummaryEl.textContent=`${res.tf} • ${res.rows} شمعة • كلفة مفترضة ${res.costUsd.toFixed(2)}$ للصفقة • الحالات الملتبسة تُحسب SL أولاً احتياطياً.`;
     });
   }
 
