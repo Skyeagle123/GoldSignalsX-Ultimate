@@ -69,6 +69,9 @@ const stochOnEl   = $('#stochOn');
 const regimeTopEl   = $('#regimeTop');
 const modeTopEl     = $('#modeTop');
 const marketStateEl = $('#marketState');
+const feedSourceEl  = $('#feedSource');
+const feedAgeEl     = $('#feedAge');
+const feedSpreadEl  = $('#feedSpread');
 
 // تبويب النصيحة
 const adviceTextEl = $('#adviceText');
@@ -114,13 +117,18 @@ const modeSafeEl  = $('#modeSafe');
 const DEFAULT_BASE = 'https://GoldSignalsX-worker.samer-mourtada.workers.dev';
 
 let lastBars = [];
-let lastLive = null;   // {price, ts, source}
+let lastLive = null;   // {price, bid, ask, spread, ts, source}
+let lastBarsSource = '';
+let lastAdvice = null;
 let chart, candleSeries;
+let livePriceLine = null;
+const tradePriceLines = { entry:null, tp1:null, tp2:null, sl:null };
 let rsiChart, rsiSeries;
 let macdChart, macdSeries;
 let stochChart, stochSeries;
 
 let lastSignalSide = 'none'; // 'buy' | 'sell' | 'none'
+let barsRequestRunning = false;
 
 // ================== Utilities ==================
 function getBase() {
@@ -148,6 +156,29 @@ function fmtDateTime(ts) {
   } catch(e) {
     return '—';
   }
+}
+
+function formatAge(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  if (ms < 1000) return 'الآن';
+  if (ms < 60000) return `${Math.floor(ms / 1000)}ث`;
+  return `${Math.floor(ms / 60000)}د`;
+}
+
+function refreshFeedStatus() {
+  if (!lastLive) return;
+  const age = Math.max(0, Date.now() - lastLive.ts);
+  if (feedAgeEl) {
+    feedAgeEl.textContent = formatAge(age);
+    feedAgeEl.style.color = age <= 10000 ? 'var(--ok)' : age <= 60000 ? 'var(--accent)' : 'var(--bad)';
+  }
+  if (feedSourceEl) {
+    const liveSource = lastLive.source || '—';
+    const sameSource = !lastBarsSource || lastBarsSource === liveSource;
+    feedSourceEl.textContent = sameSource ? liveSource : `${liveSource} / شموع ${lastBarsSource}`;
+    feedSourceEl.style.color = sameSource ? 'var(--ok)' : 'var(--accent)';
+  }
+  if (feedSpreadEl) feedSpreadEl.textContent = Number.isFinite(lastLive.spread) ? lastLive.spread.toFixed(3) : '—';
 }
 
 function logDebug(msg) {
@@ -622,6 +653,7 @@ function computeAdvice(bars){
 }
 
 function applyAdvice(ad) {
+  lastAdvice = ad;
   if (!adviceTextEl) return;
   adviceTextEl.textContent = ad.text;
   if (confValEl)  confValEl.textContent  = ad.conf ? ad.conf.toFixed(0)+'%' : '—';
@@ -638,6 +670,7 @@ function applyAdvice(ad) {
       reasonsListEl.appendChild(li);
     });
   }
+  updateTradePriceLines(ad);
 }
 
 // ===== Pivot =====
@@ -765,6 +798,42 @@ function ensureCharts(){
     const rect = wrap.getBoundingClientRect();
     chart.applyOptions({ width:rect.width, height:rect.height });
   });
+
+  updateLivePriceLine();
+  updateTradePriceLines(lastAdvice);
+}
+
+function replacePriceLine(current, value, options) {
+  if (!candleSeries) return null;
+  if (current) {
+    try { candleSeries.removePriceLine(current); } catch {}
+  }
+  if (!Number.isFinite(value)) return null;
+  return candleSeries.createPriceLine({
+    price: value,
+    axisLabelVisible: true,
+    title: options.title,
+    color: options.color,
+    lineWidth: options.lineWidth || 2,
+    lineStyle: options.lineStyle ?? LightweightCharts.LineStyle.Dashed
+  });
+}
+
+function updateLivePriceLine() {
+  livePriceLine = replacePriceLine(livePriceLine, Number(lastLive?.price), {
+    title: 'Live',
+    color: '#3b82f6',
+    lineWidth: 2,
+    lineStyle: LightweightCharts?.LineStyle?.Solid ?? 0
+  });
+}
+
+function updateTradePriceLines(ad) {
+  const active = ad && (ad.side === 'buy' || ad.side === 'sell');
+  tradePriceLines.entry = replacePriceLine(tradePriceLines.entry, active ? Number(ad.entry) : NaN, { title:'Entry', color:'#f8fafc' });
+  tradePriceLines.tp1   = replacePriceLine(tradePriceLines.tp1,   active ? Number(ad.tp1)   : NaN, { title:'TP1', color:'#22c55e' });
+  tradePriceLines.tp2   = replacePriceLine(tradePriceLines.tp2,   active ? Number(ad.tp2)   : NaN, { title:'TP2', color:'#16a34a' });
+  tradePriceLines.sl    = replacePriceLine(tradePriceLines.sl,    active ? Number(ad.sl)    : NaN, { title:'SL', color:'#ef4444' });
 }
 
 function setBarsOnCharts(bars){
@@ -818,7 +887,14 @@ async function fetchPriceOnce(){
     const j = await r.json();
     if (!j.ok || !Number.isFinite(j.price)) throw new Error('رد /price غير صالح');
     const ts = j.ts || Date.now();
-    lastLive = { price:j.price, ts, source:j.source || 'worker' };
+    lastLive = {
+      price:Number(j.price),
+      bid:Number(j.bid),
+      ask:Number(j.ask),
+      spread:Number(j.spread),
+      ts:Number(ts),
+      source:j.source || 'worker'
+    };
 
     if (priceEl) priceEl.textContent = j.price.toFixed(3);
     if (liveDtEl) liveDtEl.textContent = fmtDateTime(ts);
@@ -826,19 +902,30 @@ async function fetchPriceOnce(){
     if (liveSourceHidden) liveSourceHidden.textContent = j.source || '';
     if (liveTimeHidden)   liveTimeHidden.textContent   = String(ts);
 
-    logDebug(`سعر حي: ${j.price} من ${j.source || '؟'}`);
+    refreshFeedStatus();
+    updateLivePriceLine();
+    if (lastBars.length) updatePivot(lastBars, lastLive.price);
+
+    logDebug(`سعر حي: ${j.price} من ${j.source || '؟'}${Number.isFinite(j.spread) ? ` • spread ${Number(j.spread).toFixed(3)}` : ''}`);
   }catch(e){
     logDebug(`فشل جلب السعر الحي: ${e.message}`);
+    if (feedAgeEl) {
+      feedAgeEl.textContent = 'منقطع';
+      feedAgeEl.style.color = 'var(--bad)';
+    }
   }
 }
 
 function startPriceLoop(){
   fetchPriceOnce();
   setInterval(fetchPriceOnce, 2000);
+  setInterval(refreshFeedStatus, 1000);
 }
 
 // ===== جلب الشموع من /bars =====
 async function fetchBarsAndUpdate(){
+  if (barsRequestRunning) return;
+  barsRequestRunning = true;
   const base = getBase();
   const tfBtn = tfBar?.querySelector('button.primary');
   const tf = tfBtn ? (tfBtn.dataset.tf || '5m') : '5m';
@@ -848,6 +935,8 @@ async function fetchBarsAndUpdate(){
     const url = `${base}/bars?tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(L)}`;
     const r = await fetch(url, { cache:'no-store' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const barsSource = r.headers.get('x-gsx-source') || '';
+    lastBarsSource = barsSource;
     const j = await r.json();
     if (!Array.isArray(j) || !j.length) throw new Error('لا توجد بيانات شموع');
 
@@ -885,6 +974,8 @@ async function fetchBarsAndUpdate(){
     const advice = computeAdvice(lastBars);
     applyAdvice(advice);
 
+    refreshFeedStatus();
+
     if (lastLive && lastLive.price) {
       updatePivot(lastBars, lastLive.price);
     } else {
@@ -902,6 +993,8 @@ async function fetchBarsAndUpdate(){
     logDebug(`فشل جلب الشموع: ${e.message}`);
     lastBars = [];
     applyAdvice({ side:'none', text:'مراقبة فقط', conf:0, entry:null,tp1:null,tp2:null,sl:null, reasons:[] });
+  }finally{
+    barsRequestRunning = false;
   }
 }
 
@@ -1099,4 +1192,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
   ensureCharts();
   startPriceLoop();
   fetchBarsAndUpdate();
+  // Refresh only completed candles; live movement is shown by the blue price line.
+  setInterval(fetchBarsAndUpdate, 15000);
 });
