@@ -76,6 +76,9 @@ const feedSpreadEl  = $('#feedSpread');
 // تبويب النصيحة
 const adviceTextEl = $('#adviceText');
 const confValEl    = $('#confVal');
+const bullScoreValEl = $('#bullScoreVal');
+const bearScoreValEl = $('#bearScoreVal');
+const mtfValEl       = $('#mtfVal');
 const entryValEl   = $('#entryVal');
 const tp1ValEl     = $('#tp1Val');
 const tp2ValEl     = $('#tp2Val');
@@ -119,6 +122,9 @@ const DEFAULT_BASE = 'https://GoldSignalsX-worker.samer-mourtada.workers.dev';
 let lastBars = [];
 let lastLive = null;   // {price, bid, ask, spread, ts, source}
 let lastBarsSource = '';
+let lastAnalysisTf = '1m';
+let lastMtfBars = []; // [{ tf, bars, source }]
+let lastMtfFetchAt = 0;
 let lastAdvice = null;
 let chart, candleSeries;
 let livePriceLine = null;
@@ -129,6 +135,16 @@ let stochChart, stochSeries;
 
 let lastSignalSide = 'none'; // 'buy' | 'sell' | 'none'
 let barsRequestRunning = false;
+let priceRequestRunning = false;
+
+const TF_MS = {
+  '1m':60000, '5m':300000, '15m':900000, '30m':1800000,
+  '60m':3600000, '240m':14400000, '1d':86400000
+};
+const HIGHER_TF = {
+  '1m':['5m','15m'], '5m':['15m','60m'], '15m':['60m','240m'],
+  '30m':['60m','240m'], '60m':['240m'], '240m':[], '1d':[]
+};
 
 // ================== Utilities ==================
 function getBase() {
@@ -391,33 +407,70 @@ function calcADX(bars, period = 14) {
   return { plusDI, minusDI, ADX };
 }
 
-// ===== أنماط الشموع البسيطة =====
+// ===== أنماط الشموع اليابانية (اتجاه + قوة + سياق) =====
 function detectPattern(bars) {
-  if (!bars || bars.length < 2) return { name: 'لا يوجد', detail: '' };
-  const last = bars[bars.length - 1];
-  const prev = bars[bars.length - 2];
+  const none = { name:'لا يوجد نمط واضح', detail:'', direction:'neutral', strength:0, all:[] };
+  if (!bars || bars.length < 3) return none;
 
-  const body = Math.abs(last.c - last.o);
-  const range = last.h - last.l || 1;
-  const upper = last.h - Math.max(last.o, last.c);
-  const lower = Math.min(last.o, last.c) - last.l;
+  const n = bars.length;
+  const a = bars[n-3], b = bars[n-2], c = bars[n-1];
+  const body = x => Math.abs(x.c-x.o);
+  const range = x => Math.max(x.h-x.l, Number.EPSILON);
+  const bull = x => x.c>x.o;
+  const bear = x => x.c<x.o;
+  const bodyPct = x => body(x)/range(x);
+  const upper = x => x.h-Math.max(x.o,x.c);
+  const lower = x => Math.min(x.o,x.c)-x.l;
+  const prior = bars.slice(Math.max(0,n-9),n-1);
+  const swingLow = c.l <= Math.min(...prior.map(x=>x.l));
+  const swingHigh = c.h >= Math.max(...prior.map(x=>x.h));
+  const priorDown = b.c < bars[Math.max(0,n-5)].c;
+  const priorUp = b.c > bars[Math.max(0,n-5)].c;
+  const patterns = [];
+  const add = (name, direction, strength, detail) => patterns.push({ name, direction, strength, detail });
 
-  const isBull = last.c > last.o;
-  const isBear = last.o > last.c;
+  const bullEngulf = bear(b) && bull(c) && c.c>=b.o && c.o<=b.c && bodyPct(c)>=0.55;
+  const bearEngulf = bull(b) && bear(c) && c.o>=b.c && c.c<=b.o && bodyPct(c)>=0.55;
+  if (bullEngulf) add('Bullish Engulfing','bullish',0.82,'ابتلاع شرائي يؤكد انتقال السيطرة للمشترين.');
+  if (bearEngulf) add('Bearish Engulfing','bearish',0.82,'ابتلاع بيعي يؤكد انتقال السيطرة للبائعين.');
 
-  if (body / range < 0.3 && lower / range > 0.5 && upper / range < 0.1) {
-    return { name: 'Hammer', detail: 'شمعة مطرقة؛ احتمال انعكاس صعودي.' };
+  const smallB = bodyPct(b)<=0.3;
+  if (bear(a) && bodyPct(a)>=0.45 && smallB && bull(c) && c.c>=(a.o+a.c)/2) {
+    add('Morning Star','bullish',0.92,'نجمة صباحية من ثلاث شمعات؛ انعكاس صعودي قوي.');
   }
-  if (body / range < 0.3 && upper / range > 0.5 && lower / range < 0.1) {
-    return { name: 'Shooting Star', detail: 'نجم ساقط؛ احتمال انعكاس هبوطي.' };
+  if (bull(a) && bodyPct(a)>=0.45 && smallB && bear(c) && c.c<=(a.o+a.c)/2) {
+    add('Evening Star','bearish',0.92,'نجمة مسائية من ثلاث شمعات؛ انعكاس هبوطي قوي.');
   }
-  if (prev.o > prev.c && isBull && last.c > prev.o && last.o < prev.c) {
-    return { name: 'Bullish Engulfing', detail: 'ابتلاع شرائي؛ يقوّي احتمال الصعود.' };
+
+  const hammerShape = bodyPct(c)<=0.38 && lower(c)>=Math.max(body(c)*2,range(c)*0.48) && upper(c)<=range(c)*0.18;
+  const starShape = bodyPct(c)<=0.38 && upper(c)>=Math.max(body(c)*2,range(c)*0.48) && lower(c)<=range(c)*0.18;
+  if (hammerShape && (swingLow || priorDown)) add('Hammer','bullish',0.68,'مطرقة عند قاع/هبوط قريب؛ تحتاج تأكيد اتجاه.');
+  if (starShape && (swingHigh || priorUp)) add('Shooting Star','bearish',0.68,'نجم ساقط عند قمة/صعود قريب؛ يحتاج تأكيد اتجاه.');
+
+  if (bear(b) && bull(c) && c.o<b.c && c.c>(b.o+b.c)/2 && c.c<b.o) {
+    add('Piercing Line','bullish',0.72,'اختراق شرائي لأكثر من نصف جسم الشمعة السابقة.');
   }
-  if (prev.c > prev.o && isBear && last.o > prev.c && last.c < prev.o) {
-    return { name: 'Bearish Engulfing', detail: 'ابتلاع بيعي؛ يقوّي احتمال الهبوط.' };
+  if (bull(b) && bear(c) && c.o>b.c && c.c<(b.o+b.c)/2 && c.c>b.o) {
+    add('Dark Cloud Cover','bearish',0.72,'غطاء سحابي داكن؛ ضغط بيعي بعد صعود.');
   }
-  return { name: 'لا يوجد نمط واضح', detail: '' };
+
+  const cInsideB = Math.max(c.o,c.c)<=Math.max(b.o,b.c) && Math.min(c.o,c.c)>=Math.min(b.o,b.c);
+  if (cInsideB && body(c)<=body(b)*0.5 && bear(b) && bull(c)) add('Bullish Harami','bullish',0.56,'هارامي شرائي؛ إشارة انعكاس متوسطة.');
+  if (cInsideB && body(c)<=body(b)*0.5 && bull(b) && bear(c)) add('Bearish Harami','bearish',0.56,'هارامي بيعي؛ إشارة انعكاس متوسطة.');
+
+  const longBull = x => bull(x) && bodyPct(x)>=0.5;
+  const longBear = x => bear(x) && bodyPct(x)>=0.5;
+  if (longBull(a) && longBull(b) && longBull(c) && a.c<b.c && b.c<c.c) {
+    add('Three White Soldiers','bullish',0.88,'ثلاثة جنود بيض؛ استمرار/انعكاس صعودي قوي.');
+  }
+  if (longBear(a) && longBear(b) && longBear(c) && a.c>b.c && b.c>c.c) {
+    add('Three Black Crows','bearish',0.88,'ثلاثة غربان سود؛ استمرار/انعكاس هبوطي قوي.');
+  }
+
+  if (bodyPct(c)<=0.1) add('Doji','neutral',0.35,'دوجي؛ تردد ولا تُستخدم وحدها للدخول.');
+  if (!patterns.length) return none;
+  patterns.sort((x,y)=>y.strength-x.strength);
+  return { ...patterns[0], all:patterns };
 }
 
 // ===== تحليل السوق / Regime + تحديث المؤشرات على الشاشة =====
@@ -535,121 +588,180 @@ function chooseMode(){
   return 'smart';
 }
 
-function computeAdvice(bars){
-  if (!bars || bars.length < 20) {
-    return { side:'none', text:'بيانات غير كافية', conf:0, entry:null,tp1:null,tp2:null,sl:null, reasons:[] };
-  }
-
+function timeframeBias(bars) {
+  if (!bars || bars.length<40) return { direction:'neutral', strength:0 };
   const closes = bars.map(b=>b.c);
-  const highs  = bars.map(b=>b.h);
-  const lows   = bars.map(b=>b.l);
+  const fast = ema(closes,10).at(-1);
+  const slow = ema(closes,34).at(-1);
+  const macd = calcMACD(closes,12,26,9);
+  const hist = macd.hist.at(-1);
+  const { plusDI, minusDI, ADX } = calcADX(bars,14);
+  const adx = ADX.at(-1), pdi = plusDI.at(-1), mdi = minusDI.at(-1);
+  let bull=0, bear=0;
+  if (fast>slow && closes.at(-1)>fast) bull+=2;
+  if (fast<slow && closes.at(-1)<fast) bear+=2;
+  if (Number.isFinite(hist)) hist>0 ? bull++ : hist<0 ? bear++ : 0;
+  if (Number.isFinite(adx) && adx>=18 && Number.isFinite(pdi) && Number.isFinite(mdi)) pdi>mdi ? bull++ : bear++;
+  const diff=bull-bear;
+  return { direction:diff>=1.5?'bullish':diff<=-1.5?'bearish':'neutral', strength:Math.min(1,Math.abs(diff)/4) };
+}
 
-  const emaFlen = +(emaFastInEl?.value || 10);
-  const emaSlen = +(emaSlowInEl?.value || 34);
-  const rsiLen  = +(rsiPeriodEl?.value || 14);
-  const stLen   = +(stochKEl?.value || 14);
+function computeAdvice(bars, context={}){
+  const empty = (text,reasons=[]) => ({ side:'none', text, conf:0, entry:null,tp1:null,tp2:null,sl:null,reasons,pattern:'لا يوجد نمط واضح' });
+  if (!bars || bars.length<40) return empty('بيانات غير كافية',['نحتاج 40 شمعة مكتملة على الأقل.']);
 
-  const eFast = ema(closes, emaFlen);
-  const eSlow = ema(closes, emaSlen);
-  const rsiArr= calcRSI(closes, rsiLen);
-  const stArr = calcStoch(closes, highs, lows, stLen);
-  const bbP   = +(bbPeriodEl?.value || 20);
-  const bbK   = +(bbStdEl?.value || 2);
-  const { ma, upper, lower } = calcBB(closes, bbP, bbK);
-  const atrArr = calcATR(bars, +(atrPeriodEl?.value || 14));
-  const { ADX } = calcADX(bars, 14);
+  const closes=bars.map(b=>b.c), highs=bars.map(b=>b.h), lows=bars.map(b=>b.l);
+  const emaFlen=+(emaFastInEl?.value||10), emaSlen=+(emaSlowInEl?.value||34);
+  const eFast=ema(closes,emaFlen), eSlow=ema(closes,emaSlen);
+  const rsiArr=calcRSI(closes,+(rsiPeriodEl?.value||14));
+  const stArr=calcStoch(closes,highs,lows,+(stochKEl?.value||14));
+  const macd=calcMACD(closes,+(macdFastEl?.value||12),+(macdSlowEl?.value||26),+(macdSigEl?.value||9));
+  const { ma,upper,lower }=calcBB(closes,+(bbPeriodEl?.value||20),+(bbStdEl?.value||2));
+  const atr=calcATR(bars,+(atrPeriodEl?.value||14)).at(-1);
+  const { ADX,plusDI,minusDI }=calcADX(bars,14);
+  const C=closes.at(-1), ef=eFast.at(-1), es=eSlow.at(-1);
+  const rsi=rsiArr.at(-1), st=stArr.at(-1), stPrev=stArr.at(-2);
+  const hist=macd.hist.at(-1), histPrev=macd.hist.at(-2);
+  const adx=ADX.at(-1), pdi=plusDI.at(-1), mdi=minusDI.at(-1);
+  const M=ma.at(-1), U=upper.at(-1), L=lower.at(-1);
+  const pat=detectPattern(bars);
+  const mode=chooseMode();
+  if (modeTopEl) modeTopEl.textContent=mode==='safe'?'حذر':mode==='fast'?'سريع':'ذكي';
 
-  const i = closes.length - 1;
-  const C = closes[i];
-  const ef = eFast[eFast.length-1];
-  const es = eSlow[eSlow.length-1];
-  const rsi = rsiArr[rsiArr.length-1];
-  const st  = stArr[stArr.length-1];
-  const U = upper[upper.length-1];
-  const L = lower[lower.length-1];
-  const atr = atrArr[atrArr.length-1];
-  const adx = ADX[ADX.length-1];
-  const pat = detectPattern(bars);
-
-  const mode = chooseMode();
-  if (modeTopEl) {
-    modeTopEl.textContent = mode === 'safe' ? 'حذر' : mode === 'fast' ? 'سريع' : 'ذكي';
+  if (!Number.isFinite(atr) || atr<=0) return empty('مراقبة فقط',['ATR غير صالح؛ لا يمكن ضبط المخاطرة بدقة.']);
+  const tf=context.tf||'1m';
+  if (context.enforceFresh) {
+    const lastTs=Number(bars.at(-1)?.t);
+    const maxAge=Math.max((TF_MS[tf]||60000)*3,15*60000);
+    if (!Number.isFinite(lastTs) || Date.now()-lastTs>maxAge) {
+      return empty('مراقبة فقط',['بيانات الشموع قديمة؛ تم منع الإشارة حتى تصل شموع حديثة.']);
+    }
   }
 
-  let side = 'none';
-  let reasons = [];
-  let score = 0;
+  let bullScore=0, bearScore=0;
+  const bullReasons=[], bearReasons=[], neutralReasons=[];
+  const trendUp=ef>es && C>ef, trendDown=ef<es && C<ef;
+  if (trendUp){ bullScore+=2.5; bullReasons.push('EMA تؤكد اتجاهاً صاعداً'); }
+  if (trendDown){ bearScore+=2.5; bearReasons.push('EMA تؤكد اتجاهاً هابطاً'); }
 
-  const trendUp   = (ef>es) && (C>ef);
-  const trendDown = (ef<es) && (C<ef);
-  if (trendUp){ score+=2; reasons.push('EMA سريعة فوق EMA بطيئة → اتجاه صاعد');}
-  if (trendDown){ score+=2; reasons.push('EMA سريعة تحت EMA بطيئة → اتجاه هابط');}
-
-  if (Number.isFinite(rsi)){
-    if (rsi<30){ score+=2; reasons.push('RSI < 30 → تشبع بيع، احتمال ارتداد صعودي');}
-    else if (rsi>70){ score+=2; reasons.push('RSI > 70 → تشبع شراء، احتمال تصحيح هبوطي');}
+  if (Number.isFinite(hist)) {
+    if (hist>0){ bullScore+=1.25; bullReasons.push('زخم MACD موجب'); }
+    if (hist<0){ bearScore+=1.25; bearReasons.push('زخم MACD سالب'); }
+    if (Number.isFinite(histPrev) && hist>histPrev) bullScore+=0.35;
+    if (Number.isFinite(histPrev) && hist<histPrev) bearScore+=0.35;
   }
-  if (Number.isFinite(st)){
-    if (st<20) reasons.push('Stoch في تشبع بيع');
-    else if (st>80) reasons.push('Stoch في تشبع شراء');
-  }
+  if (Number.isFinite(adx) && adx>=18 && Number.isFinite(pdi) && Number.isFinite(mdi)) {
+    if (pdi>mdi){ bullScore+=1; bullReasons.push(`+DI يتفوّق مع ADX ${adx.toFixed(1)}`); }
+    else { bearScore+=1; bearReasons.push(`-DI يتفوّق مع ADX ${adx.toFixed(1)}`); }
+  } else neutralReasons.push('ADX ضعيف؛ لا نعتمد الاتجاه وحده');
 
-  if (pat.name.includes('Bullish')){
-    score+=2; reasons.push(`نمط شرائي: ${pat.name}`);
-  } else if (pat.name.includes('Bearish')){
-    score+=2; reasons.push(`نمط بيعي: ${pat.name}`);
+  if (Number.isFinite(rsi)) {
+    if (rsi>=52 && rsi<70) bullScore+=0.8;
+    else if (rsi<=48 && rsi>30) bearScore+=0.8;
+    else if (rsi>=70 || rsi<=30) neutralReasons.push(`RSI ${rsi.toFixed(1)} متطرف؛ لا يُستخدم وحده كإشارة انعكاس`);
   }
+  if (Number.isFinite(st) && Number.isFinite(stPrev)) {
+    if (st<40 && st>stPrev) bullScore+=0.55;
+    if (st>60 && st<stPrev) bearScore+=0.55;
+  }
+  if (Number.isFinite(M)) C>M ? bullScore+=0.45 : bearScore+=0.45;
+  if (Number.isFinite(U) && C>U) bullScore+=0.35;
+  if (Number.isFinite(L) && C<L) bearScore+=0.35;
 
-  if (Number.isFinite(adx)){
-    if (adx>25){
-      score+=1; reasons.push('ADX > 25 → ترند واضح');
+  if (pat.direction==='bullish'){
+    bullScore+=pat.strength*2.5;
+    bullReasons.push(`${pat.name}: ${pat.detail}`);
+  } else if (pat.direction==='bearish'){
+    bearScore+=pat.strength*2.5;
+    bearReasons.push(`${pat.name}: ${pat.detail}`);
+  } else if (pat.name==='Doji') neutralReasons.push(pat.detail);
+
+  const last=bars.at(-1), prev=bars.at(-2);
+  const lastRange=Math.max(last.h-last.l,Number.EPSILON);
+  const lastBody=Math.abs(last.c-last.o);
+  const bullishCandle=(last.c>last.o && lastBody/lastRange>=0.52 && last.c>=last.h-lastRange*0.2) || last.c>prev.h || pat.direction==='bullish';
+  const bearishCandle=(last.c<last.o && lastBody/lastRange>=0.52 && last.c<=last.l+lastRange*0.2) || last.c<prev.l || pat.direction==='bearish';
+  if (bullishCandle){ bullScore+=1.15; bullReasons.push('إغلاق الشمعة يؤكد ضغطاً شرائياً'); }
+  if (bearishCandle){ bearScore+=1.15; bearReasons.push('إغلاق الشمعة يؤكد ضغطاً بيعياً'); }
+
+  let mtfBull=0, mtfBear=0, mtfNeutral=0;
+  for (const frame of (context.mtf||[])) {
+    const bias=timeframeBias(frame.bars);
+    if (bias.direction==='bullish'){
+      mtfBull++;
+      bullScore+=1.6+0.6*bias.strength;
+      bullReasons.push(`الإطار ${frame.tf} صاعد`);
+    } else if (bias.direction==='bearish'){
+      mtfBear++;
+      bearScore+=1.6+0.6*bias.strength;
+      bearReasons.push(`الإطار ${frame.tf} هابط`);
     } else {
-      reasons.push('ADX ضعيف → حركة جانبية');
+      mtfNeutral++;
+      neutralReasons.push(`الإطار ${frame.tf} حيادي`);
     }
   }
 
-  const bwPct = (U!=null && L!=null && C) ? ((U-L)/C)*100 : NaN;
-  if (Number.isFinite(bwPct)){
-    if (bwPct < 1.2) reasons.push('باند بولنغر ضيقة → سوق هادئ/رانج');
-    else if (bwPct > 2) reasons.push('باند بولنغر واسعة → تقلب عالي');
-  }
+  const leader=bullScore>=bearScore?'buy':'sell';
+  const leaderScore=Math.max(bullScore,bearScore), opponentScore=Math.min(bullScore,bearScore);
+  const margin=leaderScore-opponentScore;
+  const confirmations=leader==='buy'?mtfBull:mtfBear;
+  const oppositions=leader==='buy'?mtfBear:mtfBull;
+  const candleConfirmed=leader==='buy'?bullishCandle:bearishCandle;
+  const threshold=mode==='fast'?5.8:mode==='safe'?9.2:7.4;
+  const mtfAvailable=(context.mtf||[]).length;
+  const expectedMtf=Number.isFinite(context.expectedMtf)?context.expectedMtf:mtfAvailable;
+  const requiredMtf=context.enforceMTF ? (mode==='safe'?Math.min(2,expectedMtf):Math.min(1,expectedMtf)) : 0;
+  const reasons=leader==='buy'?bullReasons:bearReasons;
 
-  if (!Number.isFinite(atr) || atr<=0) {
-    reasons.push('ATR غير متوفر → صعوبة تقدير SL/TP بدقة');
-  }
+  if (leaderScore<threshold) neutralReasons.unshift(`النقاط ${leaderScore.toFixed(1)} أقل من حد ${threshold.toFixed(1)}`);
+  if (margin<2) neutralReasons.unshift('تعارض واضح بين أدلة الشراء والبيع');
+  if (!candleConfirmed) neutralReasons.unshift('لا يوجد إغلاق شمعة مؤكِّد للاتجاه');
+  if (confirmations<requiredMtf) neutralReasons.unshift(`تأكيد MTF غير كافٍ (${confirmations}/${requiredMtf})`);
+  if (oppositions>confirmations && mtfAvailable) neutralReasons.unshift('الأطر الأعلى تعاكس الإشارة الحالية');
 
-  if (trendUp && (rsi==null || rsi<70) && !pat.name.includes('Bearish')) side = 'buy';
-  else if (trendDown && (rsi==null || rsi>30) && !pat.name.includes('Bullish')) side = 'sell';
-  else side = 'none';
+  let side=(leaderScore>=threshold && margin>=2 && candleConfirmed && confirmations>=requiredMtf && !(oppositions>confirmations && mtfAvailable))?leader:'none';
+  const liveSource=context.live?.source||'';
+  const barsSource=context.barsSource||'';
+  const sourceConsistent=!liveSource || !barsSource || liveSource===barsSource || (liveSource.startsWith('gold-ticks') && barsSource==='gold-ticks');
+  if (!sourceConsistent) neutralReasons.push(`السعر (${liveSource}) والشموع (${barsSource}) من مصدرين مختلفين`);
 
-  if (mode === 'safe'){
-    if (score<4) side = 'none';
-  } else if (mode === 'fast'){
-    if (score>=2 && side==='none') {
-      side = trendUp ? 'buy' : trendDown ? 'sell' : 'none';
-    }
-  }
+  if (side==='none') return { ...empty('مراقبة فقط',[...neutralReasons,...reasons.slice(0,3)]), pattern:pat.name, bullScore, bearScore, mtf:{bull:mtfBull,bear:mtfBear,neutral:mtfNeutral} };
 
-  let entry=null,tp1=null,tp2=null,sl=null;
-  if (side!=='none' && atr){
-    const multTP1 = mode==='fast' ? 1.0 : 1.5;
-    const multTP2 = mode==='fast' ? 1.8 : 2.3;
-    const multSL  = mode==='safe' ? 1.2 : 1.0;
-    if (side==='buy'){
-      entry = C;
-      tp1   = C + multTP1*atr;
-      tp2   = C + multTP2*atr;
-      sl    = C - multSL*atr;
-    } else {
-      entry = C;
-      tp1   = C - multTP1*atr;
-      tp2   = C - multTP2*atr;
-      sl    = C + multSL*atr;
-    }
-  }
+  let entry=C;
+  const livePrice=Number(context.live?.price);
+  const liveAge=Date.now()-Number(context.live?.ts||0);
+  if (sourceConsistent && Number.isFinite(livePrice) && liveAge<=10000 && Math.abs(livePrice-C)<=atr*0.4) entry=livePrice;
+  else if (Number.isFinite(livePrice)) neutralReasons.push('الدخول مبني على إغلاق الشمعة لأن السعر الحي غير موحّد/بعيد');
 
-  let conf = Math.max(0, Math.min(100, score*10));
-  return { side, text: side==='buy' ? 'إشارة شراء' : side==='sell' ? 'إشارة بيع' : 'مراقبة فقط', conf, entry, tp1,tp2,sl, reasons, pattern:pat.name };
+  const recent=bars.slice(-6);
+  const structural=side==='buy'?Math.min(...recent.map(x=>x.l)):Math.max(...recent.map(x=>x.h));
+  const minRisk=atr*(mode==='fast'?0.8:mode==='safe'?1.2:1.0);
+  const maxRisk=atr*(mode==='safe'?2.2:1.8);
+  const structuralRisk=side==='buy'?entry-(structural-atr*0.15):(structural+atr*0.15)-entry;
+  const risk=Math.min(maxRisk,Math.max(minRisk,structuralRisk));
+  const sl=side==='buy'?entry-risk:entry+risk;
+  const rr1=mode==='fast'?1.0:mode==='safe'?1.5:1.25;
+  const rr2=mode==='fast'?1.7:mode==='safe'?2.5:2.1;
+  const tp1=side==='buy'?entry+risk*rr1:entry-risk*rr1;
+  const tp2=side==='buy'?entry+risk*rr2:entry-risk*rr2;
+  let conf=55+(leaderScore-threshold)*6+confirmations*5+(candleConfirmed?4:0)-Math.max(0,opponentScore-2)*1.5;
+  conf=Math.max(55,Math.min(mode==='safe'?92:mode==='fast'?82:88,conf));
+  if (!sourceConsistent) conf=Math.min(conf,72);
+  if (conf<60) side='none';
+
+  return {
+    side,
+    text:side==='buy'?'إشارة شراء مؤكدة':side==='sell'?'إشارة بيع مؤكدة':'مراقبة فقط',
+    conf:side==='none'?0:conf,
+    entry:side==='none'?null:entry,
+    tp1:side==='none'?null:tp1,
+    tp2:side==='none'?null:tp2,
+    sl:side==='none'?null:sl,
+    reasons:[...reasons,...neutralReasons].slice(0,8),
+    pattern:pat.name,
+    bullScore,bearScore,
+    mtf:{bull:mtfBull,bear:mtfBear,neutral:mtfNeutral}
+  };
 }
 
 function applyAdvice(ad) {
@@ -657,6 +769,12 @@ function applyAdvice(ad) {
   if (!adviceTextEl) return;
   adviceTextEl.textContent = ad.text;
   if (confValEl)  confValEl.textContent  = ad.conf ? ad.conf.toFixed(0)+'%' : '—';
+  if (bullScoreValEl) bullScoreValEl.textContent=Number.isFinite(ad.bullScore)?ad.bullScore.toFixed(1):'—';
+  if (bearScoreValEl) bearScoreValEl.textContent=Number.isFinite(ad.bearScore)?ad.bearScore.toFixed(1):'—';
+  if (mtfValEl) {
+    const mtf=ad.mtf||{};
+    mtfValEl.textContent=`↑${mtf.bull||0} / ↓${mtf.bear||0} / —${mtf.neutral||0}`;
+  }
   if (entryValEl) entryValEl.textContent = ad.entry ? ad.entry.toFixed(2) : '—';
   if (tp1ValEl)   tp1ValEl.textContent   = ad.tp1 ? ad.tp1.toFixed(2)     : '—';
   if (tp2ValEl)   tp2ValEl.textContent   = ad.tp2 ? ad.tp2.toFixed(2)     : '—';
@@ -880,6 +998,8 @@ function setBarsOnCharts(bars){
 
 // ===== جلب السعر الحي =====
 async function fetchPriceOnce(){
+  if (priceRequestRunning) return;
+  priceRequestRunning=true;
   const base = getBase();
   try{
     const r = await fetch(`${base}/price`, { cache:'no-store' });
@@ -913,16 +1033,47 @@ async function fetchPriceOnce(){
       feedAgeEl.textContent = 'منقطع';
       feedAgeEl.style.color = 'var(--bad)';
     }
+  }finally{
+    priceRequestRunning=false;
   }
 }
 
 function startPriceLoop(){
   fetchPriceOnce();
-  setInterval(fetchPriceOnce, 2000);
+  setInterval(fetchPriceOnce, 3000);
   setInterval(refreshFeedStatus, 1000);
 }
 
 // ===== جلب الشموع من /bars =====
+function normalizeCompletedBars(rows,tf) {
+  const duration=TF_MS[tf]||60000;
+  const now=Date.now();
+  const mapped=(Array.isArray(rows)?rows:[]).map(b=>{
+    const rawT=b.t??b.time??b.ts??b.isoTime??b.date??0;
+    let t=typeof rawT==='string'?Date.parse(rawT):Number(rawT);
+    if (Number.isFinite(t) && t<1e12) t*=1000;
+    return { t,o:+b.o,h:+b.h,l:+b.l,c:+b.c,v:+(b.v||0),complete:b.complete };
+  }).filter(b=>
+    Number.isFinite(b.t) && Number.isFinite(b.o) && Number.isFinite(b.h) &&
+    Number.isFinite(b.l) && Number.isFinite(b.c) && b.h>=b.l && b.complete!==false
+  ).sort((a,b)=>a.t-b.t);
+
+  // OANDA marks completed candles explicitly. Fallback sources do not, so
+  // reject any candle whose time bucket has not closed yet.
+  return mapped.filter(b=>b.complete===true || b.t+duration<=now+2000);
+}
+
+async function fetchBarsFrame(base,tf,limit) {
+  const url=`${base}/bars?tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit)}`;
+  const response=await fetch(url,{cache:'no-store'});
+  if (!response.ok) throw new Error(`${tf}: HTTP ${response.status}`);
+  const source=response.headers.get('x-gsx-source')||'';
+  const rows=await response.json();
+  const bars=normalizeCompletedBars(rows,tf);
+  if (!bars.length) throw new Error(`${tf}: لا توجد شموع مكتملة`);
+  return {tf,bars,source};
+}
+
 async function fetchBarsAndUpdate(){
   if (barsRequestRunning) return;
   barsRequestRunning = true;
@@ -932,46 +1083,42 @@ async function fetchBarsAndUpdate(){
   const L = Math.max(300, Math.min(+(limitIn?.value || 1200), 5000));
 
   try{
-    const url = `${base}/bars?tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(L)}`;
-    const r = await fetch(url, { cache:'no-store' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const barsSource = r.headers.get('x-gsx-source') || '';
-    lastBarsSource = barsSource;
-    const j = await r.json();
-    if (!Array.isArray(j) || !j.length) throw new Error('لا توجد بيانات شموع');
-
-    // تحويل الوقت t لأي شكل (رقم أو ISO) إلى ms
-    lastBars = j.map(b=>{
-      let rawT = b.t ?? b.time ?? b.ts ?? b.isoTime ?? b.date ?? 0;
-      let t = Number(rawT);
-      if (!Number.isFinite(t) && typeof rawT === 'string') {
-        const parsed = Date.parse(rawT);
-        if (Number.isFinite(parsed)) t = parsed;
-      }
-      return {
-        t,
-        o:+b.o,
-        h:+b.h,
-        l:+b.l,
-        c:+b.c,
-        v:+(b.v || 0)
-      };
-    }).filter(b =>
-      Number.isFinite(b.t) &&
-      Number.isFinite(b.o) &&
-      Number.isFinite(b.h) &&
-      Number.isFinite(b.l) &&
-      Number.isFinite(b.c)
-    );
-
-    if (!lastBars.length) throw new Error('كل الشموع مرفوضة (مشكل time)');
+    const higher=HIGHER_TF[tf]||[];
+    const refreshMtf=tf!==lastAnalysisTf || !lastMtfBars.length || Date.now()-lastMtfFetchAt>=60000;
+    const settled=await Promise.allSettled([
+      fetchBarsFrame(base,tf,L),
+      ...(refreshMtf?higher.map(higherTf=>fetchBarsFrame(base,higherTf,80)):[])
+    ]);
+    if (settled[0].status!=='fulfilled') throw settled[0].reason;
+    const primary=settled[0].value;
+    const tfChanged=tf!==lastAnalysisTf;
+    lastAnalysisTf=tf;
+    lastBars=primary.bars;
+    lastBarsSource=primary.source;
+    if (refreshMtf) {
+      lastMtfBars=settled.slice(1)
+        .filter(result=>result.status==='fulfilled' && result.value.bars.length>=40)
+        .map(result=>result.value);
+      lastMtfFetchAt=Date.now();
+      settled.slice(1).filter(result=>result.status==='rejected').forEach(result=>logDebug(`MTF: ${result.reason?.message||result.reason}`));
+    } else if (tfChanged) {
+      lastMtfBars=[];
+    }
 
     ensureCharts();
     setBarsOnCharts(lastBars);
 
     const closes = lastBars.map(b=>b.c);
     analyzeMarket(lastBars, closes);
-    const advice = computeAdvice(lastBars);
+    const advice=computeAdvice(lastBars,{
+      tf:lastAnalysisTf,
+      mtf:lastMtfBars,
+      expectedMtf:higher.length,
+      live:lastLive,
+      barsSource:lastBarsSource,
+      enforceMTF:true,
+      enforceFresh:true
+    });
     applyAdvice(advice);
 
     refreshFeedStatus();
@@ -983,12 +1130,13 @@ async function fetchBarsAndUpdate(){
     }
 
     const last = lastBars[lastBars.length-1];
-    logDebug(`تم جلب ${lastBars.length} شمعة. آخر إغلاق: ${last.c}`);
+    logDebug(`تم جلب ${lastBars.length} شمعة مكتملة (${tf}) + ${lastMtfBars.map(x=>x.tf).join(',')||'بدون MTF'}. آخر إغلاق: ${last.c}`);
 
     if (advice.side !== lastSignalSide && advice.side !== 'none') {
       lastSignalSide = advice.side;
       showToastSignal(advice);
     }
+    if (advice.side==='none') lastSignalSide='none';
   }catch(e){
     logDebug(`فشل جلب الشموع: ${e.message}`);
     lastBars = [];
@@ -1024,7 +1172,7 @@ if (toastCloseEl){
 // ===== Telegram Notify =====
 async function sendAdviceToTelegram(){
   if (!lastBars || !lastBars.length) return;
-  const ad = computeAdvice(lastBars);
+  const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,enforceMTF:true,enforceFresh:true});
   const base = getBase();
   const text = [
     'إشارة GoldSignalsX',
@@ -1140,7 +1288,7 @@ function setupUI(){
   if (btnNotify) btnNotify.addEventListener('click', sendAdviceToTelegram);
   if (btnRecalc) btnRecalc.addEventListener('click', ()=>{
     if (!lastBars || !lastBars.length) return;
-    const ad = computeAdvice(lastBars);
+    const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,enforceMTF:true,enforceFresh:true});
     applyAdvice(ad);
   });
 
