@@ -1,4 +1,4 @@
-// app_mobile.js — GoldSignalsX • Advanced v4
+// app_mobile.js — GoldSignalsX • Advanced v6
 // يربط واجهة الموبايل مع ال Worker:
 //  - /price  → سعر حي
 //  - /bars   → شموع + مؤشرات + نصيحة + Pivot + Backtest
@@ -100,10 +100,17 @@ const logEl       = $('#log');
 // Backtest
 const btnBacktest = $('#btnBacktest');
 const csvFileEl   = $('#csvFile');
+const btSpreadEl  = $('#btSpread');
+const btSlippageEl = $('#btSlippage');
 const btTradesEl  = $('#btTrades');
 const btPLEl      = $('#btPL');
 const btWinEl     = $('#btWin');
 const btDDEl      = $('#btDD');
+const btPFEl      = $('#btPF');
+const btAvgREl    = $('#btAvgR');
+const btOosEl     = $('#btOos');
+const btAmbiguousEl = $('#btAmbiguous');
+const btSummaryEl = $('#btSummary');
 
 // Pivot
 const pivotTableBody = $('#pivotTable tbody');
@@ -1755,7 +1762,7 @@ async function sendAdviceToTelegram(){
   }
 }
 
-// ===== Backtest بسيط =====
+// ===== Backtest واقعي =====
 function parseCsv(text){
   const lines = String(text||'').trim().split(/\r?\n/);
   if (lines.length<=1) return [];
@@ -1773,36 +1780,144 @@ function parseCsv(text){
   return rows;
 }
 
-function runBacktestOnBars(bars){
-  if (!bars || bars.length<50) return null;
-  let trades = 0;
-  let pl = 0;
-  let wins = 0;
-  let maxDD = 0;
-  let equity = 0;
-  let ref = 0;
-
-  for(let i=30;i<bars.length-1;i++){
-    const slice = bars.slice(0, i+1);
-    const ad = computeAdvice(slice);
-    if (ad.side==='none' || !ad.entry || !ad.tp1 || !ad.sl) continue;
-    trades++;
-    const next = bars[i+1];
-    let result = 0;
-    if (ad.side==='buy'){
-      if (next.h >= ad.tp1) result = +(ad.tp1 - ad.entry);
-      else if (next.l <= ad.sl) result = +(ad.sl - ad.entry);
+function resampleHistoricalBars(bars,toTf,asOf){
+  const duration=TF_MS[toTf];
+  if (!duration) return [];
+  const grouped=[];
+  let current=null;
+  for (const bar of bars) {
+    const base=Math.floor(bar.t/duration)*duration;
+    if (!current || current.t!==base) {
+      if (current) grouped.push(current);
+      current={t:base,o:bar.o,h:bar.h,l:bar.l,c:bar.c,v:Number(bar.v||0)};
     } else {
-      if (next.l <= ad.tp1) result = +(ad.entry - ad.tp1);
-      else if (next.h >= ad.sl) result = +(ad.entry - ad.sl);
+      current.h=Math.max(current.h,bar.h);
+      current.l=Math.min(current.l,bar.l);
+      current.c=bar.c;
+      current.v+=Number(bar.v||0);
     }
-    pl += result;
-    equity += result;
-    if (equity<ref) maxDD = Math.min(maxDD, equity-ref);
-    if (result>0) wins++;
   }
-  const winPct = trades ? (wins/trades)*100 : 0;
-  return { trades, pl, winPct, maxDD };
+  if (current) grouped.push(current);
+  return grouped.filter(bar=>bar.t+duration<=asOf);
+}
+
+function historicalMtfFrames(history,tf,asOf){
+  return (HIGHER_TF[tf]||[]).map(higherTf=>({
+    tf:higherTf,
+    bars:resampleHistoricalBars(history,higherTf,asOf),
+    source:'backtest'
+  })).filter(frame=>frame.bars.length>=40);
+}
+
+function evaluateHistoricalTrade(signal,bars,startIndex,maxBars,costUsd=0){
+  const risk=Math.abs(Number(signal.entry)-Number(signal.sl));
+  if (!Number.isFinite(risk)||risk<=0) return null;
+  const side=signal.side;
+  let tp1Hit=false;
+  let partialR=0;
+  let ambiguous=false;
+  let exitIndex=Math.min(bars.length-1,startIndex);
+  let outcome='expired';
+  let remainingExitR=0;
+  const endIndex=Math.min(bars.length-1,startIndex+Math.max(1,maxBars)-1);
+
+  for(let j=startIndex;j<=endIndex;j++){
+    const bar=bars[j];
+    const slHit=side==='buy'?bar.l<=signal.sl:bar.h>=signal.sl;
+    const tp1Now=side==='buy'?bar.h>=signal.tp1:bar.l<=signal.tp1;
+    const tp2Hit=side==='buy'?bar.h>=signal.tp2:bar.l<=signal.tp2;
+    if (slHit && (tp1Now || tp2Hit)) ambiguous=true;
+
+    // Conservative same-candle policy: when order is unknowable, count SL first.
+    if (slHit) {
+      remainingExitR=-1;
+      outcome='sl';
+      exitIndex=j;
+      break;
+    }
+    if (tp2Hit) {
+      if (!tp1Hit) {
+        partialR=Math.abs(signal.tp1-signal.entry)/risk*0.5;
+        tp1Hit=true;
+      }
+      remainingExitR=Math.abs(signal.tp2-signal.entry)/risk*0.5;
+      outcome='tp2';
+      exitIndex=j;
+      break;
+    }
+    if (!tp1Hit && tp1Now) {
+      partialR=Math.abs(signal.tp1-signal.entry)/risk*0.5;
+      tp1Hit=true;
+    }
+    exitIndex=j;
+  }
+
+  if (outcome==='expired') {
+    const close=Number(bars[exitIndex]?.c ?? signal.entry);
+    const closeR=side==='buy'?(close-signal.entry)/risk:(signal.entry-close)/risk;
+    remainingExitR=closeR*(tp1Hit?0.5:1);
+  } else if (outcome==='sl' && tp1Hit) {
+    remainingExitR*=0.5;
+  }
+
+  const grossR=partialR+remainingExitR;
+  const costR=Math.max(0,Number(costUsd)||0)/risk;
+  return {grossR,netR:grossR-costR,outcome,tp1Hit,ambiguous,exitIndex,risk,costR};
+}
+
+function summarizeBacktestTrades(trades){
+  let equity=0,peak=0,maxDD=0,grossProfit=0,grossLoss=0,wins=0;
+  for(const trade of trades){
+    equity+=trade.netR;
+    peak=Math.max(peak,equity);
+    maxDD=Math.max(maxDD,peak-equity);
+    if (trade.netR>0){ wins++; grossProfit+=trade.netR; }
+    else grossLoss+=Math.abs(trade.netR);
+  }
+  const count=trades.length;
+  return {
+    trades:count,
+    netR:equity,
+    winPct:count?wins/count*100:0,
+    maxDD,
+    profitFactor:grossLoss>0?grossProfit/grossLoss:(grossProfit>0?Infinity:0),
+    avgR:count?equity/count:0,
+    ambiguous:trades.filter(t=>t.ambiguous).length
+  };
+}
+
+function runBacktestOnBars(bars,options={}){
+  if (!bars || bars.length<80) return null;
+  const tf=options.tf||lastAnalysisTf||'1m';
+  const duration=TF_MS[tf]||60000;
+  const expectedMtf=(HIGHER_TF[tf]||[]).length;
+  const costUsd=Math.max(0,Number(options.spread)||0)+Math.max(0,Number(options.slippage)||0)*2;
+  const trades=[];
+
+  for(let i=40;i<bars.length-1;i++){
+    const history=bars.slice(0,i+1);
+    const asOf=Number(bars[i].t)+duration;
+    const mtf=historicalMtfFrames(history,tf,asOf);
+    const ad=computeAdvice(history,{
+      tf,mtf,expectedMtf,
+      live:{price:bars[i].c,ts:bars[i].t,receivedAt:bars[i].t,source:'backtest'},
+      barsSource:'backtest',
+      enforceMTF:true,
+      enforceFresh:false,
+      pivots:calculateDailyPivots(history)
+    });
+    if (!['buy','sell'].includes(ad.side) || ![ad.entry,ad.tp1,ad.tp2,ad.sl].every(Number.isFinite)) continue;
+    const maxBars=Math.max(1,Math.ceil(signalExpiryMs(tf)/duration));
+    const result=evaluateHistoricalTrade(ad,bars,i+1,maxBars,costUsd);
+    if (!result) continue;
+    trades.push({...result,side:ad.side,signalIndex:i,entry:ad.entry,createdAt:bars[i].t});
+    i=Math.max(i,result.exitIndex);
+  }
+
+  const summary=summarizeBacktestTrades(trades);
+  const splitIndex=Math.floor(bars.length*0.7);
+  const oos=summarizeBacktestTrades(trades.filter(trade=>trade.signalIndex>=splitIndex));
+  return {...summary,oos,costUsd,tf,rows:bars.length,details:trades};
 }
 
 function saveSignalSettings(){
@@ -1905,16 +2020,28 @@ function setupUI(){
         const text = await csvFileEl.files[0].text();
         bars = parseCsv(text);
       }
-      const res = runBacktestOnBars(bars);
+      const tfBtn=tfBar?.querySelector('button.primary');
+      const tf=tfBtn?.dataset.tf||lastAnalysisTf||'1m';
+      const res = runBacktestOnBars(bars,{
+        tf,
+        spread:Number(btSpreadEl?.value||0),
+        slippage:Number(btSlippageEl?.value||0)
+      });
       if (!res){
-        btTradesEl.textContent = btPLEl.textContent =
-        btWinEl.textContent = btDDEl.textContent = '—';
+        [btTradesEl,btPLEl,btWinEl,btDDEl,btPFEl,btAvgREl,btOosEl,btAmbiguousEl]
+          .filter(Boolean).forEach(el=>el.textContent='—');
+        if (btSummaryEl) btSummaryEl.textContent='نحتاج 80 شمعة مكتملة على الأقل.';
         return;
       }
       btTradesEl.textContent = String(res.trades);
-      btPLEl.textContent     = res.pl.toFixed(2);
+      btPLEl.textContent     = `${res.netR>=0?'+':''}${res.netR.toFixed(2)}R`;
       btWinEl.textContent    = res.winPct.toFixed(1)+'%';
-      btDDEl.textContent     = res.maxDD.toFixed(2);
+      btDDEl.textContent     = res.maxDD.toFixed(2)+'R';
+      if (btPFEl) btPFEl.textContent=Number.isFinite(res.profitFactor)?res.profitFactor.toFixed(2):'∞';
+      if (btAvgREl) btAvgREl.textContent=`${res.avgR>=0?'+':''}${res.avgR.toFixed(2)}R`;
+      if (btOosEl) btOosEl.textContent=`${res.oos.trades} صفقة • ${res.oos.winPct.toFixed(1)}% • ${res.oos.netR>=0?'+':''}${res.oos.netR.toFixed(2)}R`;
+      if (btAmbiguousEl) btAmbiguousEl.textContent=String(res.ambiguous);
+      if (btSummaryEl) btSummaryEl.textContent=`${res.tf} • ${res.rows} شمعة • كلفة مفترضة ${res.costUsd.toFixed(2)}$ للصفقة • الحالات الملتبسة تُحسب SL أولاً احتياطياً.`;
     });
   }
 
