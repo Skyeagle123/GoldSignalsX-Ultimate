@@ -144,6 +144,10 @@ let stochChart, stochSeries;
 let lastSignalSide = 'none'; // 'buy' | 'sell' | 'none'
 let barsRequestRunning = false;
 let priceRequestRunning = false;
+let liveSocket = null;
+let liveSocketBase = '';
+let liveSocketRetryId = null;
+let lastStreamTickAt = 0;
 let lastMarketState = 'رانج';
 let applyingModeProfile = false;
 
@@ -1157,6 +1161,46 @@ function setBarsOnCharts(bars){
 }
 
 // ===== جلب السعر الحي =====
+function normalizeStreamQuote(payload){
+  if (!payload || payload.event !== 'price') return null;
+  const price=Number(payload.price);
+  let ts=Number(payload.ts ?? payload.timestamp);
+  if (!Number.isFinite(price)) return null;
+  if (!Number.isFinite(ts)) ts=Date.now();
+  else if (ts<1e12) ts*=1000;
+  return {
+    price,
+    bid:Number(payload.bid),
+    ask:Number(payload.ask),
+    spread:Number(payload.spread),
+    ts,
+    source:payload.source || 'twelve-data'
+  };
+}
+
+function applyLiveQuote(quote){
+  if (!quote || !Number.isFinite(quote.price)) return false;
+  lastLive={
+    price:Number(quote.price),
+    bid:Number(quote.bid),
+    ask:Number(quote.ask),
+    spread:Number(quote.spread),
+    ts:Number(quote.ts || Date.now()),
+    source:quote.source || 'worker'
+  };
+
+  if (priceEl) priceEl.textContent=lastLive.price.toFixed(3);
+  if (liveDtEl) liveDtEl.textContent=fmtDateTime(lastLive.ts);
+  if (livePriceHidden) livePriceHidden.textContent=String(lastLive.price);
+  if (liveSourceHidden) liveSourceHidden.textContent=lastLive.source;
+  if (liveTimeHidden) liveTimeHidden.textContent=String(lastLive.ts);
+
+  refreshFeedStatus();
+  updateLivePriceLine();
+  if (lastBars.length) updatePivot(lastBars,lastLive.price);
+  return true;
+}
+
 async function fetchPriceOnce(){
   if (priceRequestRunning) return;
   priceRequestRunning=true;
@@ -1166,25 +1210,15 @@ async function fetchPriceOnce(){
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();
     if (!j.ok || !Number.isFinite(j.price)) throw new Error('رد /price غير صالح');
-    const ts = j.ts || Date.now();
-    lastLive = {
+    const ts=j.ts || Date.now();
+    applyLiveQuote({
       price:Number(j.price),
       bid:Number(j.bid),
       ask:Number(j.ask),
       spread:Number(j.spread),
       ts:Number(ts),
       source:j.source || 'worker'
-    };
-
-    if (priceEl) priceEl.textContent = j.price.toFixed(3);
-    if (liveDtEl) liveDtEl.textContent = fmtDateTime(ts);
-    if (livePriceHidden)  livePriceHidden.textContent  = String(j.price);
-    if (liveSourceHidden) liveSourceHidden.textContent = j.source || '';
-    if (liveTimeHidden)   liveTimeHidden.textContent   = String(ts);
-
-    refreshFeedStatus();
-    updateLivePriceLine();
-    if (lastBars.length) updatePivot(lastBars, lastLive.price);
+    });
 
     logDebug(`سعر حي: ${j.price} من ${j.source || '؟'}${Number.isFinite(j.spread) ? ` • spread ${Number(j.spread).toFixed(3)}` : ''}`);
   }catch(e){
@@ -1198,9 +1232,72 @@ async function fetchPriceOnce(){
   }
 }
 
+function stopLiveStream(){
+  if (liveSocketRetryId){
+    clearTimeout(liveSocketRetryId);
+    liveSocketRetryId=null;
+  }
+  if (liveSocket){
+    const socket=liveSocket;
+    liveSocket=null;
+    try{ socket.close(1000,'reconnect'); }catch{}
+  }
+  liveSocketBase='';
+}
+
+function scheduleStreamReconnect(){
+  if (liveSocketRetryId) return;
+  liveSocketRetryId=setTimeout(()=>{
+    liveSocketRetryId=null;
+    connectLiveStream();
+  },5000);
+}
+
+function connectLiveStream(){
+  if (typeof WebSocket==='undefined') return;
+  const base=getBase();
+  if (liveSocket && liveSocketBase===base && liveSocket.readyState<2) return;
+  stopLiveStream();
+  liveSocketBase=base;
+  const wsUrl=`${base.replace(/^http/i,'ws')}/stream`;
+
+  try{
+    const socket=new WebSocket(wsUrl);
+    liveSocket=socket;
+    socket.addEventListener('open',()=>logDebug('اتصل البث الحي Twelve Data'));
+    socket.addEventListener('message',(event)=>{
+      let payload;
+      try{ payload=JSON.parse(event.data); }catch{ return; }
+      const quote=normalizeStreamQuote(payload);
+      if (quote && applyLiveQuote(quote)){
+        lastStreamTickAt=Date.now();
+        logDebug(`سعر لحظي: ${quote.price} من ${quote.source}`);
+        return;
+      }
+      if (payload?.event==='error' || payload?.status==='error'){
+        logDebug(`بث Twelve Data: ${payload.message || payload.code || 'غير متاح'}`);
+      }
+    });
+    socket.addEventListener('close',()=>{
+      if (liveSocket===socket) liveSocket=null;
+      scheduleStreamReconnect();
+    });
+    socket.addEventListener('error',()=>{
+      logDebug('بث Twelve Data غير متاح، الانتقال للمصدر الاحتياطي');
+    });
+  }catch(e){
+    logDebug(`تعذّر فتح البث: ${e.message}`);
+    scheduleStreamReconnect();
+  }
+}
+
 function startPriceLoop(){
+  connectLiveStream();
   fetchPriceOnce();
-  setInterval(fetchPriceOnce, 3000);
+  setInterval(()=>{
+    // REST remains a safety net, but never overwrites a fresh WebSocket tick.
+    if (!lastStreamTickAt || Date.now()-lastStreamTickAt>15000) fetchPriceOnce();
+  },3000);
   setInterval(refreshFeedStatus, 1000);
 }
 
@@ -1455,7 +1552,12 @@ function recalculateCurrentAdvice(){
 
 // ===== ربط الـ UI =====
 function setupUI(){
-  if (saveBase) saveBase.addEventListener('click', ()=> setBase(baseIn.value));
+  if (saveBase) saveBase.addEventListener('click', ()=>{
+    setBase(baseIn.value);
+    stopLiveStream();
+    connectLiveStream();
+    fetchPriceOnce();
+  });
   if (baseIn && !baseIn.value) {
     const saved = localStorage.getItem('GSX_BASE_URL');
     baseIn.value = saved || DEFAULT_BASE;
