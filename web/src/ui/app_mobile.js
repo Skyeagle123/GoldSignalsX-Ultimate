@@ -1,4 +1,4 @@
-// app_mobile.js — GoldSignalsX • Advanced v8
+// app_mobile.js — GoldSignalsX • Advanced v9
 // يربط واجهة الموبايل مع ال Worker:
 //  - /price  → سعر حي
 //  - /bars   → شموع + مؤشرات + نصيحة + Pivot + Backtest
@@ -16,6 +16,12 @@ const tfBar    = $('#tfBar');
 const limitIn  = $('#limit');
 const btnBars  = $('#btnBars');
 const btnCSV   = $('#btnCSV');
+
+// إظهار المؤشرات على الشارت (مستقل عن إدراجها في حساب النصيحة)
+const showBBEl    = $('#showBB');
+const showMacdEl  = $('#showMacd');
+const showRsiEl   = $('#showRsi');
+const showStochEl = $('#showStoch');
 
 // السعر الحي
 const priceEl  = $('#price');
@@ -149,12 +155,13 @@ let lastMtfBars = []; // [{ tf, bars, source }]
 let lastMtfFetchAt = 0;
 let lastAdvice = null;
 let activeSignal = null;
-let chart, candleSeries;
+let chart, candleSeries, mainChartWrap;
+let bbUpperSeries, bbMiddleSeries, bbLowerSeries;
 let livePriceLine = null;
 const tradePriceLines = { entry:null, tp1:null, tp2:null, sl:null };
-let rsiChart, rsiSeries;
-let macdChart, macdSeries;
-let stochChart, stochSeries;
+let rsiChart, rsiSeries, rsiChartWrap;
+let macdChart, macdSeries, macdChartWrap;
+let stochChart, stochSeries, stochChartWrap;
 
 let lastSignalSide = 'none'; // 'buy' | 'sell' | 'none'
 let barsRequestRunning = false;
@@ -172,6 +179,7 @@ let lastMarketState = 'رانج';
 let applyingModeProfile = false;
 
 const SETTINGS_KEY = 'GSX_SIGNAL_SETTINGS_V2';
+const CHART_DISPLAY_KEY = 'GSX_CHART_DISPLAY_V1';
 const ACTIVE_SIGNAL_KEY = 'GSX_ACTIVE_SIGNAL_V1';
 const STREAM_STALE_MS = 15000;
 const QUOTE_RECEIPT_MAX_AGE_MS = 20000;
@@ -1246,6 +1254,7 @@ function ensureCharts(){
   if (!c || typeof LightweightCharts === 'undefined') return;
 
   const wrap = document.createElement('div');
+  mainChartWrap = wrap;
   wrap.style.width = '100%';
   // استخدم الارتفاع الحقيقي من الـ canvas أو قيمة افتراضية
   const cRect = c.getBoundingClientRect();
@@ -1279,9 +1288,20 @@ function ensureCharts(){
     lastValueVisible:false
   });
 
+  const bbSeriesOptions = {
+    lineWidth:1,
+    priceLineVisible:false,
+    lastValueVisible:false,
+    crosshairMarkerVisible:false
+  };
+  bbUpperSeries = chart.addLineSeries({ ...bbSeriesOptions, color:'#60a5fa' });
+  bbMiddleSeries = chart.addLineSeries({ ...bbSeriesOptions, color:'#f59e0b' });
+  bbLowerSeries = chart.addLineSeries({ ...bbSeriesOptions, color:'#60a5fa' });
+
   const rsiP = $('#rsiPanel');
   if (rsiP){
     const w = document.createElement('div');
+    rsiChartWrap = w;
     w.style.width='100%';
     const rRect = rsiP.getBoundingClientRect();
     const rh = (rRect.height && rRect.height>0) ? rRect.height : 120;
@@ -1297,6 +1317,7 @@ function ensureCharts(){
   const macdP = $('#macdPanel');
   if (macdP){
     const w = document.createElement('div');
+    macdChartWrap = w;
     w.style.width='100%';
     const mRect = macdP.getBoundingClientRect();
     const mh = (mRect.height && mRect.height>0) ? mRect.height : 140;
@@ -1312,6 +1333,7 @@ function ensureCharts(){
   const stochP = $('#stochPanel');
   if (stochP){
     const w = document.createElement('div');
+    stochChartWrap = w;
     w.style.width='100%';
     const sRect = stochP.getBoundingClientRect();
     const sh = (sRect.height && sRect.height>0) ? sRect.height : 120;
@@ -1324,13 +1346,60 @@ function ensureCharts(){
     stochSeries = stochChart.addLineSeries({ lineWidth:1 });
   }
 
-  window.addEventListener('resize', ()=>{
-    const rect = wrap.getBoundingClientRect();
-    chart.applyOptions({ width:rect.width, height:rect.height });
-  });
+  window.addEventListener('resize', resizeChartsToContainers);
 
+  applyChartDisplay();
   updateLivePriceLine();
   updateTradePriceLines(lastAdvice);
+}
+
+function resizeChartToContainer(chartInstance, container){
+  if (!chartInstance || !container || container.style.display==='none') return;
+  const rect=container.getBoundingClientRect();
+  if (rect.width>0 && rect.height>0) chartInstance.applyOptions({width:rect.width,height:rect.height});
+}
+
+function resizeChartsToContainers(){
+  resizeChartToContainer(chart,mainChartWrap);
+  resizeChartToContainer(macdChart,macdChartWrap);
+  resizeChartToContainer(rsiChart,rsiChartWrap);
+  resizeChartToContainer(stochChart,stochChartWrap);
+}
+
+function applyChartDisplay(){
+  const bbVisible=showBBEl ? showBBEl.checked : true;
+  [bbUpperSeries,bbMiddleSeries,bbLowerSeries].filter(Boolean)
+    .forEach(series=>series.applyOptions({visible:bbVisible}));
+
+  const panels=[
+    [macdChartWrap,macdChart,showMacdEl ? showMacdEl.checked : true],
+    [rsiChartWrap,rsiChart,showRsiEl ? showRsiEl.checked : true],
+    [stochChartWrap,stochChart,showStochEl ? showStochEl.checked : false]
+  ];
+  panels.forEach(([container,chartInstance,visible])=>{
+    if (!container) return;
+    container.style.display=visible?'block':'none';
+    if (visible) requestAnimationFrame(()=>resizeChartToContainer(chartInstance,container));
+  });
+}
+
+function saveChartDisplaySettings(){
+  const settings={
+    bb:!!showBBEl?.checked,
+    macd:!!showMacdEl?.checked,
+    rsi:!!showRsiEl?.checked,
+    stoch:!!showStochEl?.checked
+  };
+  try { localStorage.setItem(CHART_DISPLAY_KEY,JSON.stringify(settings)); } catch {}
+}
+
+function restoreChartDisplaySettings(){
+  let settings=null;
+  try { settings=JSON.parse(localStorage.getItem(CHART_DISPLAY_KEY)||'null'); } catch {}
+  if (!settings || typeof settings!=='object') return;
+  [[showBBEl,'bb'],[showMacdEl,'macd'],[showRsiEl,'rsi'],[showStochEl,'stoch']].forEach(([el,key])=>{
+    if (el && typeof settings[key]==='boolean') el.checked=settings[key];
+  });
 }
 
 function replacePriceLine(current, value, options) {
@@ -1382,6 +1451,13 @@ function setBarsOnCharts(bars){
   });
 
   const closes = bars.map(b=>b.c);
+  const bbObj=calcBB(closes,+(bbPeriodEl?.value||20),+(bbStdEl?.value||2));
+  const lineData=values=>bars.map((b,i)=>({time:Math.floor(b.t/1000),value:values[i]}))
+    .filter(point=>Number.isFinite(point.value));
+  if (bbUpperSeries) bbUpperSeries.setData(lineData(bbObj.upper));
+  if (bbMiddleSeries) bbMiddleSeries.setData(lineData(bbObj.ma));
+  if (bbLowerSeries) bbLowerSeries.setData(lineData(bbObj.lower));
+
   const rsiArr = calcRSI(closes, +(rsiPeriodEl?.value||14));
   if (rsiSeries){
     const d = bars.map((b,i)=>({ time:Math.floor(b.t/1000), value:rsiArr[i]??50 }));
@@ -1406,6 +1482,7 @@ function setBarsOnCharts(bars){
     stochSeries.setData(d);
     stochChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, d.length - 100), to: d.length + 5 });
   }
+  applyChartDisplay();
 }
 
 // ===== جلب السعر الحي =====
@@ -2044,6 +2121,13 @@ function setupUI(){
 
   if (btnBars) btnBars.addEventListener('click', fetchBarsAndUpdate);
 
+  [showBBEl,showMacdEl,showRsiEl,showStochEl].filter(Boolean).forEach(el=>{
+    el.addEventListener('change',()=>{
+      applyChartDisplay();
+      saveChartDisplaySettings();
+    });
+  });
+
   if (btnCSV){
     btnCSV.addEventListener('click', ()=>{
       const base = getBase();
@@ -2157,6 +2241,7 @@ function setupUI(){
 document.addEventListener('DOMContentLoaded', ()=>{
   setBase(getBase());
   restoreSignalSettings();
+  restoreChartDisplaySettings();
   restoreActiveSignal();
   setupUI();
   applyModeProfile(lastMarketState);
