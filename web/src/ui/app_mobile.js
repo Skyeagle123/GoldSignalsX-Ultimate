@@ -760,9 +760,15 @@ function computeAdvice(bars, context={}){
   const tf=context.tf||'1m';
   if (context.enforceFresh) {
     const lastTs=Number(bars.at(-1)?.t);
-    const maxAge=Math.max((TF_MS[tf]||60000)*3,15*60000);
+    const maxAge=Math.max((TF_MS[tf]||60000)*3,7*60000);
     if (!Number.isFinite(lastTs) || Date.now()-lastTs>maxAge) {
       return empty('مراقبة فقط',['بيانات الشموع قديمة؛ تم منع الإشارة حتى تصل شموع حديثة.']);
+    }
+    const quoteTs=Number(context.live?.ts);
+    const quotePrice=Number(context.live?.price);
+    const quoteAge=Date.now()-quoteTs;
+    if (!Number.isFinite(quoteTs) || !Number.isFinite(quotePrice) || quoteAge<0 || quoteAge>60000) {
+      return empty('مراقبة فقط',['السعر الحي مفقود أو أقدم من 60 ثانية؛ تم منع الإشارة.']);
     }
   }
 
@@ -874,15 +880,21 @@ function computeAdvice(bars, context={}){
   let side=(leaderScore>=threshold && margin>=2 && candleConfirmed && confirmations>=requiredMtf && !(oppositions>confirmations && mtfAvailable) && !nyBlocked && !pivotBlocked)?leader:'none';
   const liveSource=context.live?.source||'';
   const barsSource=context.barsSource||'';
-  const sourceConsistent=!liveSource || !barsSource || liveSource===barsSource || (liveSource.startsWith('gold-ticks') && barsSource==='gold-ticks');
-  if (!sourceConsistent) neutralReasons.push(`السعر (${liveSource}) والشموع (${barsSource}) من مصدرين مختلفين`);
+  const livePrice=Number(context.live?.price);
+  const liveAge=Date.now()-Number(context.live?.ts||0);
+  const priceGap=Number.isFinite(livePrice)?Math.abs(livePrice-C):Infinity;
+  const priceAligned=priceGap<=Math.max(atr*0.75,C*0.002);
+  const storedBars=barsSource==='d1'||barsSource==='kv';
+  const sameProvider=!liveSource || !barsSource || liveSource===barsSource || (liveSource.startsWith('gold-ticks') && barsSource==='gold-ticks');
+  const sourceConsistent=sameProvider || (storedBars && priceAligned);
+  if (!sourceConsistent) neutralReasons.unshift(`السعر (${liveSource}) والشموع (${barsSource}) غير متوافقين؛ تم منع الإشارة`);
+  if (!priceAligned) neutralReasons.unshift(`فرق السعر الحي عن آخر شمعة كبير (${priceGap.toFixed(2)}$)؛ تم منع الإشارة`);
+  if (!sourceConsistent || !priceAligned) side='none';
 
   if (side==='none') return { ...empty('مراقبة فقط',[...neutralReasons,...reasons.slice(0,3)]), pattern:pat.name, bullScore, bearScore, mtf:{bull:mtfBull,bear:mtfBear,neutral:mtfNeutral} };
 
   let entry=C;
-  const livePrice=Number(context.live?.price);
-  const liveAge=Date.now()-Number(context.live?.ts||0);
-  if (sourceConsistent && Number.isFinite(livePrice) && liveAge<=10000 && Math.abs(livePrice-C)<=atr*0.4) entry=livePrice;
+  if (sourceConsistent && Number.isFinite(livePrice) && liveAge<=60000 && priceAligned) entry=livePrice;
   else if (Number.isFinite(livePrice)) neutralReasons.push('الدخول مبني على إغلاق الشمعة لأن السعر الحي غير موحّد/بعيد');
 
   const recent=bars.slice(-6);
