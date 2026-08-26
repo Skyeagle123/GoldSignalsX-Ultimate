@@ -41,6 +41,7 @@ const atrValEl    = $('#atrVal');
 const bbModeEl    = $('#bbMode');
 const bbPeriodEl  = $('#bbPeriod');
 const bbStdEl     = $('#bbStd');
+const bbOnEl      = $('#bbOn');
 const bbMAEl      = $('#bbMA');
 const bbUpEl      = $('#bbUp');
 const bbLoEl      = $('#bbLo');
@@ -114,6 +115,13 @@ const toastCloseEl = $('#toastClose');
 const modeSmartEl = $('#modeSmart');
 const modeFastEl  = $('#modeFast');
 const modeSafeEl  = $('#modeSafe');
+const autoProfileEl = $('#autoProfile');
+const modeProfileTextEl = $('#modeProfileText');
+const nyFilterOnEl = $('#nyFilterOn');
+const nyStartEl = $('#nyStart');
+const nyEndEl = $('#nyEnd');
+const pivotFilterOnEl = $('#pivotFilterOn');
+const pivotDistanceEl = $('#pivotDistance');
 
 // ================== حالة عامة ==================
 
@@ -136,6 +144,10 @@ let stochChart, stochSeries;
 let lastSignalSide = 'none'; // 'buy' | 'sell' | 'none'
 let barsRequestRunning = false;
 let priceRequestRunning = false;
+let lastMarketState = 'رانج';
+let applyingModeProfile = false;
+
+const SETTINGS_KEY = 'GSX_SIGNAL_SETTINGS_V2';
 
 const TF_MS = {
   '1m':60000, '5m':300000, '15m':900000, '30m':1800000,
@@ -523,6 +535,9 @@ function analyzeMarket(bars, closes){
     else state = 'رانج';
   }
 
+  lastMarketState=state;
+  applyModeProfile(state);
+
   if (regimeBadge) regimeBadge.textContent = state;
   if (regimeTopEl) regimeTopEl.textContent = state;
   if (marketStateEl){
@@ -588,6 +603,119 @@ function chooseMode(){
   return 'smart';
 }
 
+function indicatorEnabled(el){
+  return el ? !!el.checked : true;
+}
+
+function modeIndicatorProfile(mode, marketState='رانج'){
+  const trend = String(marketState).includes('ترند');
+  if (mode==='fast') return { ema:true, macd:true, rsi:true, stoch:false, bb:false };
+  if (trend && mode==='safe') return { ema:true, macd:true, rsi:true, stoch:false, bb:true };
+  if (trend) return { ema:true, macd:true, rsi:true, stoch:false, bb:false };
+  return { ema:false, macd:false, rsi:true, stoch:true, bb:true };
+}
+
+function applyModeProfile(marketState=lastMarketState){
+  const mode=chooseMode();
+  const profile=modeIndicatorProfile(mode,marketState);
+  const autoOn=autoProfileEl ? autoProfileEl.checked : false;
+  if (autoOn) {
+    applyingModeProfile=true;
+    if (emaOnEl) emaOnEl.checked=profile.ema;
+    if (macdOnEl) macdOnEl.checked=profile.macd;
+    if (rsiOnEl) rsiOnEl.checked=profile.rsi;
+    if (stochOnEl) stochOnEl.checked=profile.stoch;
+    if (bbOnEl) bbOnEl.checked=profile.bb;
+    applyingModeProfile=false;
+  }
+  if (modeProfileTextEl) {
+    const shown=autoOn?profile:{ema:indicatorEnabled(emaOnEl),macd:indicatorEnabled(macdOnEl),rsi:indicatorEnabled(rsiOnEl),stoch:indicatorEnabled(stochOnEl),bb:indicatorEnabled(bbOnEl)};
+    const names=[];
+    if (shown.ema) names.push('EMA');
+    if (shown.macd) names.push('MACD');
+    if (shown.rsi) names.push('RSI');
+    if (shown.stoch) names.push('Stoch');
+    if (shown.bb) names.push('BB');
+    const label=mode==='safe'?'حذر':mode==='fast'?'سريع':'ذكي';
+    modeProfileTextEl.textContent=`${label} • ${String(marketState).includes('ترند')?'ترند':'رانج'} • ${names.join(' + ')}${autoOn?'':' (يدوي)'}`;
+  }
+  return profile;
+}
+
+function nyClockMinutes(ts){
+  const parts=new Intl.DateTimeFormat('en-US',{
+    timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false
+  }).formatToParts(new Date(ts));
+  const h=Number(parts.find(p=>p.type==='hour')?.value);
+  const m=Number(parts.find(p=>p.type==='minute')?.value);
+  return Number.isFinite(h)&&Number.isFinite(m) ? (h%24)*60+m : NaN;
+}
+
+function parseClock(value,fallback){
+  const match=String(value||'').match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+  const h=Number(match[1]),m=Number(match[2]);
+  return h>=0&&h<=23&&m>=0&&m<=59 ? h*60+m : fallback;
+}
+
+function inNyTradingWindow(ts,start='08:00',end='17:00'){
+  const now=nyClockMinutes(ts);
+  const from=parseClock(start,8*60), to=parseClock(end,17*60);
+  if (!Number.isFinite(now)) return false;
+  return from<=to ? now>=from&&now<=to : now>=from||now<=to;
+}
+
+function nyDateKey(ts){
+  const parts=new Intl.DateTimeFormat('en-US',{
+    timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'
+  }).formatToParts(new Date(ts));
+  const get=type=>parts.find(p=>p.type===type)?.value||'';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function calculateDailyPivots(bars){
+  if (!Array.isArray(bars)||bars.length<2) return null;
+  const days=[];
+  let current=null;
+  for (const bar of bars) {
+    const ts=Number(bar?.t), h=Number(bar?.h), l=Number(bar?.l), c=Number(bar?.c);
+    if (![ts,h,l,c].every(Number.isFinite)) continue;
+    const key=nyDateKey(ts);
+    if (!current||current.key!==key) {
+      current={key,high:h,low:l,close:c};
+      days.push(current);
+    } else {
+      current.high=Math.max(current.high,h);
+      current.low=Math.min(current.low,l);
+      current.close=c;
+    }
+  }
+  if (days.length<2) return null;
+  const day=days.at(-2);
+  const P=(day.high+day.low+day.close)/3;
+  const range=day.high-day.low;
+  return {
+    date:day.key,
+    P,
+    R1:2*P-day.low,
+    S1:2*P-day.high,
+    R2:P+range,
+    S2:P-range,
+    R3:day.high+2*(P-day.low),
+    S3:day.low-2*(day.high-P)
+  };
+}
+
+function nearestPivot(price,pivots){
+  if (!Number.isFinite(price)||!pivots) return null;
+  const points=['P','R1','R2','R3','S1','S2','S3']
+    .map(label=>({label,value:Number(pivots[label])}))
+    .filter(point=>Number.isFinite(point.value))
+    .map(point=>({...point,distance:Math.abs(price-point.value)}))
+    .sort((a,b)=>a.distance-b.distance);
+  return points[0]||null;
+}
+
 function timeframeBias(bars) {
   if (!bars || bars.length<40) return { direction:'neutral', strength:0 };
   const closes = bars.map(b=>b.c);
@@ -640,11 +768,16 @@ function computeAdvice(bars, context={}){
 
   let bullScore=0, bearScore=0;
   const bullReasons=[], bearReasons=[], neutralReasons=[];
+  const useEMA=indicatorEnabled(emaOnEl);
+  const useMACD=indicatorEnabled(macdOnEl);
+  const useRSI=indicatorEnabled(rsiOnEl);
+  const useStoch=indicatorEnabled(stochOnEl);
+  const useBB=indicatorEnabled(bbOnEl);
   const trendUp=ef>es && C>ef, trendDown=ef<es && C<ef;
-  if (trendUp){ bullScore+=2.5; bullReasons.push('EMA تؤكد اتجاهاً صاعداً'); }
-  if (trendDown){ bearScore+=2.5; bearReasons.push('EMA تؤكد اتجاهاً هابطاً'); }
+  if (useEMA&&trendUp){ bullScore+=2.5; bullReasons.push('EMA تؤكد اتجاهاً صاعداً'); }
+  if (useEMA&&trendDown){ bearScore+=2.5; bearReasons.push('EMA تؤكد اتجاهاً هابطاً'); }
 
-  if (Number.isFinite(hist)) {
+  if (useMACD&&Number.isFinite(hist)) {
     if (hist>0){ bullScore+=1.25; bullReasons.push('زخم MACD موجب'); }
     if (hist<0){ bearScore+=1.25; bearReasons.push('زخم MACD سالب'); }
     if (Number.isFinite(histPrev) && hist>histPrev) bullScore+=0.35;
@@ -655,18 +788,18 @@ function computeAdvice(bars, context={}){
     else { bearScore+=1; bearReasons.push(`-DI يتفوّق مع ADX ${adx.toFixed(1)}`); }
   } else neutralReasons.push('ADX ضعيف؛ لا نعتمد الاتجاه وحده');
 
-  if (Number.isFinite(rsi)) {
+  if (useRSI&&Number.isFinite(rsi)) {
     if (rsi>=52 && rsi<70) bullScore+=0.8;
     else if (rsi<=48 && rsi>30) bearScore+=0.8;
     else if (rsi>=70 || rsi<=30) neutralReasons.push(`RSI ${rsi.toFixed(1)} متطرف؛ لا يُستخدم وحده كإشارة انعكاس`);
   }
-  if (Number.isFinite(st) && Number.isFinite(stPrev)) {
+  if (useStoch&&Number.isFinite(st) && Number.isFinite(stPrev)) {
     if (st<40 && st>stPrev) bullScore+=0.55;
     if (st>60 && st<stPrev) bearScore+=0.55;
   }
-  if (Number.isFinite(M)) C>M ? bullScore+=0.45 : bearScore+=0.45;
-  if (Number.isFinite(U) && C>U) bullScore+=0.35;
-  if (Number.isFinite(L) && C<L) bearScore+=0.35;
+  if (useBB&&Number.isFinite(M)) C>M ? bullScore+=0.45 : bearScore+=0.45;
+  if (useBB&&Number.isFinite(U) && C>U) bullScore+=0.35;
+  if (useBB&&Number.isFinite(L) && C<L) bearScore+=0.35;
 
   if (pat.direction==='bullish'){
     bullScore+=pat.strength*2.5;
@@ -719,7 +852,26 @@ function computeAdvice(bars, context={}){
   if (confirmations<requiredMtf) neutralReasons.unshift(`تأكيد MTF غير كافٍ (${confirmations}/${requiredMtf})`);
   if (oppositions>confirmations && mtfAvailable) neutralReasons.unshift('الأطر الأعلى تعاكس الإشارة الحالية');
 
-  let side=(leaderScore>=threshold && margin>=2 && candleConfirmed && confirmations>=requiredMtf && !(oppositions>confirmations && mtfAvailable))?leader:'none';
+  let nyBlocked=false, pivotBlocked=false;
+  if (nyFilterOnEl?.checked) {
+    const filterTs=Number(context.live?.ts)||Number(bars.at(-1)?.t);
+    nyBlocked=!inNyTradingWindow(filterTs,nyStartEl?.value||'08:00',nyEndEl?.value||'17:00');
+    if (nyBlocked) neutralReasons.unshift(`خارج جلسة نيويورك (${nyStartEl?.value||'08:00'}–${nyEndEl?.value||'17:00'})`);
+  }
+  if (pivotFilterOnEl?.checked) {
+    const pivots=context.pivots||calculateDailyPivots(bars);
+    const nearest=nearestPivot(C,pivots);
+    const minDistance=Math.max(0,Number(pivotDistanceEl?.value||0.7));
+    if (!pivots) {
+      pivotBlocked=true;
+      neutralReasons.unshift('Pivot اليومي غير متوفر؛ تم منع الإشارة احتياطياً');
+    } else if (nearest&&nearest.distance<minDistance) {
+      pivotBlocked=true;
+      neutralReasons.unshift(`السعر قريب من ${nearest.label} (${nearest.distance.toFixed(2)}$ < ${minDistance.toFixed(2)}$)`);
+    }
+  }
+
+  let side=(leaderScore>=threshold && margin>=2 && candleConfirmed && confirmations>=requiredMtf && !(oppositions>confirmations && mtfAvailable) && !nyBlocked && !pivotBlocked)?leader:'none';
   const liveSource=context.live?.source||'';
   const barsSource=context.barsSource||'';
   const sourceConsistent=!liveSource || !barsSource || liveSource===barsSource || (liveSource.startsWith('gold-ticks') && barsSource==='gold-ticks');
@@ -794,24 +946,20 @@ function applyAdvice(ad) {
 // ===== Pivot =====
 function updatePivot(bars, livePrice){
   if (!pivotTableBody || !bars || !bars.length) return;
-  const last = bars[bars.length-1];
-  const H = last.h;
-  const L = last.l;
-  const C = last.c;
-  const P = (H+L+C)/3;
-  const R1 = 2*P - L;
-  const S1 = 2*P - H;
-  const R2 = P + (H-L);
-  const S2 = P - (H-L);
-
-  const price = livePrice || C;
+  const pivots=calculateDailyPivots(bars);
+  const price=Number(livePrice)||Number(bars.at(-1)?.c);
+  if (!pivots) {
+    pivotTableBody.innerHTML='<tr><td colspan="4">نحتاج بيانات من يومَي نيويورك على الأقل لحساب Pivot بدقة.</td></tr>';
+    if (pivotPriceEl) pivotPriceEl.textContent=Number.isFinite(price)?`السعر الحالي المستخدم: ${price.toFixed(2)}`:'—';
+    return;
+  }
 
   const rows = [
-    { label:'Pivot', value:P, cls:'pivot', hint:'المركز المحوري لليوم' },
-    { label:'R1', value:R1, cls:'res',    hint:'مقاومة أولى' },
-    { label:'R2', value:R2, cls:'res',    hint:'مقاومة ثانية' },
-    { label:'S1', value:S1, cls:'sup',    hint:'دعم أول' },
-    { label:'S2', value:S2, cls:'sup',    hint:'دعم ثاني' },
+    { label:'Pivot', value:pivots.P, cls:'pivot', hint:'المركز المحوري لليوم' },
+    { label:'R1', value:pivots.R1, cls:'res',    hint:'مقاومة أولى' },
+    { label:'R2', value:pivots.R2, cls:'res',    hint:'مقاومة ثانية' },
+    { label:'S1', value:pivots.S1, cls:'sup',    hint:'دعم أول' },
+    { label:'S2', value:pivots.S2, cls:'sup',    hint:'دعم ثاني' },
   ];
 
   pivotTableBody.innerHTML = '';
@@ -827,7 +975,7 @@ function updatePivot(bars, livePrice){
   });
 
   if (pivotPriceEl){
-    pivotPriceEl.textContent = `السعر الحالي المستخدم: ${price.toFixed(2)}`;
+    pivotPriceEl.textContent = `محسوب من جلسة ${pivots.date} • السعر الحالي: ${price.toFixed(2)}`;
   }
 }
 
@@ -1248,6 +1396,51 @@ function runBacktestOnBars(bars){
   return { trades, pl, winPct, maxDD };
 }
 
+function saveSignalSettings(){
+  const value=el=>el?.value;
+  const checked=el=>!!el?.checked;
+  const settings={
+    mode:chooseMode(),
+    autoProfile:checked(autoProfileEl),
+    emaOn:checked(emaOnEl),rsiOn:checked(rsiOnEl),macdOn:checked(macdOnEl),stochOn:checked(stochOnEl),bbOn:checked(bbOnEl),
+    atrMode:value(atrModeEl),atrPeriod:value(atrPeriodEl),
+    bbMode:value(bbModeEl),bbPeriod:value(bbPeriodEl),bbStd:value(bbStdEl),
+    emaMode:value(emaModeEl),emaFast:value(emaFastInEl),emaSlow:value(emaSlowInEl),
+    rsiMode:value(rsiModeEl),rsiPeriod:value(rsiPeriodEl),
+    macdMode:value(macdModeEl),macdFast:value(macdFastEl),macdSlow:value(macdSlowEl),macdSig:value(macdSigEl),
+    stochMode:value(stochModeEl),stochK:value(stochKEl),stochD:value(stochDEl),
+    nyFilterOn:checked(nyFilterOnEl),nyStart:value(nyStartEl),nyEnd:value(nyEndEl),
+    pivotFilterOn:checked(pivotFilterOnEl),pivotDistance:value(pivotDistanceEl)
+  };
+  try { localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings)); } catch {}
+}
+
+function restoreSignalSettings(){
+  let settings=null;
+  try { settings=JSON.parse(localStorage.getItem(SETTINGS_KEY)||'null'); } catch {}
+  if (!settings||typeof settings!=='object') return;
+  const setValue=(el,key)=>{ if(el&&settings[key]!=null) el.value=String(settings[key]); };
+  const setChecked=(el,key)=>{ if(el&&typeof settings[key]==='boolean') el.checked=settings[key]; };
+  if (settings.mode==='safe'&&modeSafeEl) modeSafeEl.checked=true;
+  else if (settings.mode==='fast'&&modeFastEl) modeFastEl.checked=true;
+  else if (modeSmartEl) modeSmartEl.checked=true;
+  ['autoProfile','emaOn','rsiOn','macdOn','stochOn','bbOn','nyFilterOn','pivotFilterOn']
+    .forEach(key=>setChecked({autoProfile:autoProfileEl,emaOn:emaOnEl,rsiOn:rsiOnEl,macdOn:macdOnEl,stochOn:stochOnEl,bbOn:bbOnEl,nyFilterOn:nyFilterOnEl,pivotFilterOn:pivotFilterOnEl}[key],key));
+  const values={atrMode:atrModeEl,atrPeriod:atrPeriodEl,bbMode:bbModeEl,bbPeriod:bbPeriodEl,bbStd:bbStdEl,
+    emaMode:emaModeEl,emaFast:emaFastInEl,emaSlow:emaSlowInEl,rsiMode:rsiModeEl,rsiPeriod:rsiPeriodEl,
+    macdMode:macdModeEl,macdFast:macdFastEl,macdSlow:macdSlowEl,macdSig:macdSigEl,
+    stochMode:stochModeEl,stochK:stochKEl,stochD:stochDEl,nyStart:nyStartEl,nyEnd:nyEndEl,pivotDistance:pivotDistanceEl};
+  Object.entries(values).forEach(([key,el])=>setValue(el,key));
+}
+
+function recalculateCurrentAdvice(){
+  if (!lastBars||!lastBars.length) return;
+  analyzeMarket(lastBars,lastBars.map(b=>b.c));
+  const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,enforceMTF:true,enforceFresh:true});
+  applyAdvice(ad);
+  updatePivot(lastBars,lastLive?.price||lastBars.at(-1)?.c);
+}
+
 // ===== ربط الـ UI =====
 function setupUI(){
   if (saveBase) saveBase.addEventListener('click', ()=> setBase(baseIn.value));
@@ -1287,9 +1480,7 @@ function setupUI(){
 
   if (btnNotify) btnNotify.addEventListener('click', sendAdviceToTelegram);
   if (btnRecalc) btnRecalc.addEventListener('click', ()=>{
-    if (!lastBars || !lastBars.length) return;
-    const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,enforceMTF:true,enforceFresh:true});
-    applyAdvice(ad);
+    recalculateCurrentAdvice();
   });
 
   if (btnBacktest && csvFileEl){
@@ -1331,12 +1522,42 @@ function setupUI(){
   toggleManual(rsiModeEl,   [rsiPeriodEl]);
   toggleManual(macdModeEl,  [macdFastEl, macdSlowEl, macdSigEl]);
   toggleManual(stochModeEl, [stochKEl, stochDEl]);
+
+  [modeSmartEl,modeFastEl,modeSafeEl].filter(Boolean).forEach(el=>el.addEventListener('change',()=>{
+    if (!el.checked) return;
+    applyModeProfile(lastMarketState);
+    saveSignalSettings();
+    recalculateCurrentAdvice();
+  }));
+
+  if (autoProfileEl) autoProfileEl.addEventListener('change',()=>{
+    applyModeProfile(lastMarketState);
+    saveSignalSettings();
+    recalculateCurrentAdvice();
+  });
+
+  [emaOnEl,rsiOnEl,macdOnEl,stochOnEl,bbOnEl].filter(Boolean).forEach(el=>el.addEventListener('change',()=>{
+    if (!applyingModeProfile&&autoProfileEl?.checked) autoProfileEl.checked=false;
+    applyModeProfile(lastMarketState);
+    saveSignalSettings();
+    recalculateCurrentAdvice();
+  }));
+
+  const savedFields=[atrModeEl,atrPeriodEl,bbModeEl,bbPeriodEl,bbStdEl,emaModeEl,emaFastInEl,emaSlowInEl,
+    rsiModeEl,rsiPeriodEl,macdModeEl,macdFastEl,macdSlowEl,macdSigEl,stochModeEl,stochKEl,stochDEl,
+    nyFilterOnEl,nyStartEl,nyEndEl,pivotFilterOnEl,pivotDistanceEl];
+  savedFields.filter(Boolean).forEach(el=>el.addEventListener('change',()=>{
+    saveSignalSettings();
+    recalculateCurrentAdvice();
+  }));
 }
 
 // ===== Bootstrap =====
 document.addEventListener('DOMContentLoaded', ()=>{
   setBase(getBase());
+  restoreSignalSettings();
   setupUI();
+  applyModeProfile(lastMarketState);
   ensureCharts();
   startPriceLoop();
   fetchBarsAndUpdate();
