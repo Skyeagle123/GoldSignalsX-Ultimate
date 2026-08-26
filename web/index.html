@@ -237,17 +237,24 @@
 
     <!-- Backtest -->
     <section id="tab-bt" class="tab card" style="display:none">
-      <div class="title">Backtest سريع</div>
+      <div class="title">Backtest واقعي</div>
       <div class="row">
         <button id="btnBacktest">تشغيل Backtest</button>
         <input id="csvFile" type="file" accept=".csv">
+        <label class="chip">Spread $ <input id="btSpread" type="number" value="0.50" min="0" max="50" step="0.05"></label>
+        <label class="chip">Slippage $ <input id="btSlippage" type="number" value="0.10" min="0" max="20" step="0.05"></label>
       </div>
       <div class="row" style="gap:12px;margin-top:6px">
         <span class="chip">الصفقات: <b id="btTrades">—</b></span>
-        <span class="chip">الربح الإجمالي: <b id="btPL">—</b></span>
+        <span class="chip">صافي النتيجة: <b id="btPL">—</b></span>
         <span class="chip">Win%: <b id="btWin">—</b></span>
         <span class="chip">MaxDD: <b id="btDD">—</b></span>
+        <span class="chip">Profit Factor: <b id="btPF">—</b></span>
+        <span class="chip">متوسط الصفقة: <b id="btAvgR">—</b></span>
+        <span class="chip">آخر 30%: <b id="btOos">—</b></span>
+        <span class="chip">شموع ملتبسة: <b id="btAmbiguous">—</b></span>
       </div>
+      <div id="btSummary" class="small" style="margin-top:8px">يستخدم القواعد الحالية والوضع والفلاتر نفسها، ويحسب TP1/TP2/SL والتكاليف بدون فتح صفقات متداخلة.</div>
     </section>
 
     <!-- Pivot -->
@@ -311,6 +318,6 @@
 
   <!-- Lightweight Charts + App -->
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-  <script src="./src/ui/app_mobile.js?v=20260826-5"></script>
+  <script src="./src/ui/app_mobile.js?v=20260826-6"></script>
 </body>
 </html>
