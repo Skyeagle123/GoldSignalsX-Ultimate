@@ -1,4 +1,4 @@
-// app_mobile.js — GoldSignalsX • Advanced v7
+// app_mobile.js — GoldSignalsX • Advanced v8
 // يربط واجهة الموبايل مع ال Worker:
 //  - /price  → سعر حي
 //  - /bars   → شموع + مؤشرات + نصيحة + Pivot + Backtest
@@ -1272,7 +1272,11 @@ function ensureCharts(){
 
   candleSeries = chart.addCandlestickSeries({
     upColor:'#22c55e', borderUpColor:'#22c55e', wickUpColor:'#22c55e',
-    downColor:'#ef4444', borderDownColor:'#ef4444', wickDownColor:'#ef4444'
+    downColor:'#ef4444', borderDownColor:'#ef4444', wickDownColor:'#ef4444',
+    // The candle series' built-in last-price line looks like a TP line.
+    // Keep only our explicit blue Live line and actual trade levels.
+    priceLineVisible:false,
+    lastValueVisible:false
   });
 
   const rsiP = $('#rsiPanel');
