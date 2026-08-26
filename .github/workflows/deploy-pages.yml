@@ -1,5 +1,6 @@
 name: Deploy Pages (web)
 on:
+  workflow_dispatch:
   push:
     branches: [ "main" ]
     paths:
