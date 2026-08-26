@@ -80,6 +80,9 @@ const confValEl    = $('#confVal');
 const bullScoreValEl = $('#bullScoreVal');
 const bearScoreValEl = $('#bearScoreVal');
 const mtfValEl       = $('#mtfVal');
+const signalStatusEl = $('#signalStatus');
+const signalAgeEl    = $('#signalAge');
+const signalProgressEl = $('#signalProgress');
 const entryValEl   = $('#entryVal');
 const tp1ValEl     = $('#tp1Val');
 const tp2ValEl     = $('#tp2Val');
@@ -134,6 +137,7 @@ let lastAnalysisTf = '1m';
 let lastMtfBars = []; // [{ tf, bars, source }]
 let lastMtfFetchAt = 0;
 let lastAdvice = null;
+let activeSignal = null;
 let chart, candleSeries;
 let livePriceLine = null;
 const tradePriceLines = { entry:null, tp1:null, tp2:null, sl:null };
@@ -152,6 +156,7 @@ let lastMarketState = 'رانج';
 let applyingModeProfile = false;
 
 const SETTINGS_KEY = 'GSX_SIGNAL_SETTINGS_V2';
+const ACTIVE_SIGNAL_KEY = 'GSX_ACTIVE_SIGNAL_V1';
 
 const TF_MS = {
   '1m':60000, '5m':300000, '15m':900000, '30m':1800000,
@@ -927,13 +932,158 @@ function computeAdvice(bars, context={}){
     sl:side==='none'?null:sl,
     reasons:[...reasons,...neutralReasons].slice(0,8),
     pattern:pat.name,
+    tf,
+    signalBarTs:Number(last?.t)||Date.now(),
     bullScore,bearScore,
     mtf:{bull:mtfBull,bear:mtfBear,neutral:mtfNeutral}
   };
 }
 
-function applyAdvice(ad) {
-  lastAdvice = ad;
+function isTerminalSignalStatus(status){
+  return ['tp2','stopped','expired','cancelled'].includes(status);
+}
+
+function signalExpiryMs(tf){
+  const base=TF_MS[tf]||300000;
+  return Math.min(7*24*60*60*1000,Math.max(30*60*1000,base*12));
+}
+
+function validSignal(signal){
+  if (!signal || !['buy','sell'].includes(signal.side)) return false;
+  return ['entry','tp1','tp2','sl','createdAt'].every(key=>Number.isFinite(Number(signal[key]))) &&
+    Number(signal.createdAt)>0;
+}
+
+function persistActiveSignal(){
+  try{
+    if (activeSignal) localStorage.setItem(ACTIVE_SIGNAL_KEY,JSON.stringify(activeSignal));
+    else localStorage.removeItem(ACTIVE_SIGNAL_KEY);
+  }catch{}
+}
+
+function restoreActiveSignal(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(ACTIVE_SIGNAL_KEY)||'null');
+    if (!validSignal(saved)) return;
+    activeSignal=saved;
+    if (!isTerminalSignalStatus(activeSignal.status) && Date.now()-activeSignal.createdAt>signalExpiryMs(activeSignal.tf)) {
+      activeSignal.status='expired';
+      activeSignal.closedAt=Date.now();
+      activeSignal.closedBarTs=Number(lastBars.at(-1)?.t)||Number(activeSignal.signalBarTs)||0;
+      persistActiveSignal();
+    }
+  }catch{}
+}
+
+function signalFromAdvice(ad){
+  const createdAt=Date.now();
+  return {
+    id:`${createdAt}-${ad.side}`,
+    side:ad.side,
+    entry:Number(ad.entry),tp1:Number(ad.tp1),tp2:Number(ad.tp2),sl:Number(ad.sl),
+    conf:Number(ad.conf)||0,
+    reasons:Array.isArray(ad.reasons)?ad.reasons.slice(0,8):[],
+    pattern:ad.pattern||'لا يوجد نمط واضح',
+    bullScore:Number(ad.bullScore),bearScore:Number(ad.bearScore),
+    mtf:ad.mtf||{bull:0,bear:0,neutral:0},
+    tf:ad.tf||lastAnalysisTf,
+    signalBarTs:Number(ad.signalBarTs)||Number(lastBars.at(-1)?.t)||createdAt,
+    createdAt,
+    status:'active',
+    tp1Hit:false,
+    lastPrice:Number(ad.entry)
+  };
+}
+
+function signalStatusText(signal){
+  if (!signal) return 'لا توجد';
+  const side=signal.side==='buy'?'شراء':'بيع';
+  if (signal.status==='tp1') return `${side} فعّال • تحقق TP1`;
+  if (signal.status==='tp2') return `${side} مكتمل • تحقق TP2`;
+  if (signal.status==='stopped') return `${side} منتهٍ • SL`;
+  if (signal.status==='expired') return `${side} منتهي الصلاحية`;
+  if (signal.status==='cancelled') return `${side} مُلغى`;
+  return `${side} فعّال`;
+}
+
+function signalAsAdvice(signal){
+  if (!signal) return null;
+  return {
+    side:signal.side,
+    text:signalStatusText(signal),
+    conf:signal.conf,
+    entry:signal.entry,tp1:signal.tp1,tp2:signal.tp2,sl:signal.sl,
+    reasons:signal.reasons,pattern:signal.pattern,
+    bullScore:signal.bullScore,bearScore:signal.bearScore,mtf:signal.mtf,
+    tf:signal.tf,signalBarTs:signal.signalBarTs,status:signal.status,
+    createdAt:signal.createdAt,lastPrice:signal.lastPrice
+  };
+}
+
+function reconcileAdviceSignal(ad){
+  const actionable=ad && ['buy','sell'].includes(ad.side) &&
+    [ad.entry,ad.tp1,ad.tp2,ad.sl].every(value=>Number.isFinite(Number(value)));
+  if (!actionable) return {ad:activeSignal?signalAsAdvice(activeSignal):ad,isNew:false};
+
+  const rawBarTs=Number(ad.signalBarTs)||Number(lastBars.at(-1)?.t)||Date.now();
+  if (activeSignal && !isTerminalSignalStatus(activeSignal.status)) {
+    if (activeSignal.side===ad.side) return {ad:signalAsAdvice(activeSignal),isNew:false};
+    activeSignal.status='cancelled';
+    activeSignal.closedAt=Date.now();
+    activeSignal.closedBarTs=Number(lastBars.at(-1)?.t)||rawBarTs;
+    activeSignal=signalFromAdvice(ad);
+    persistActiveSignal();
+    return {ad:signalAsAdvice(activeSignal),isNew:true};
+  }
+
+  if (activeSignal && isTerminalSignalStatus(activeSignal.status) && rawBarTs<=Number(activeSignal.closedBarTs||0)) {
+    return {ad:signalAsAdvice(activeSignal),isNew:false};
+  }
+
+  activeSignal=signalFromAdvice(ad);
+  persistActiveSignal();
+  return {ad:signalAsAdvice(activeSignal),isNew:true};
+}
+
+function signalProgressR(signal,price){
+  if (!signal || !Number.isFinite(price)) return NaN;
+  const risk=Math.abs(signal.entry-signal.sl);
+  if (!Number.isFinite(risk)||risk<=0) return NaN;
+  return signal.side==='buy'?(price-signal.entry)/risk:(signal.entry-price)/risk;
+}
+
+function renderSignalMeta(signal){
+  if (signalStatusEl) {
+    signalStatusEl.textContent=signalStatusText(signal);
+    signalStatusEl.style.color=!signal?'var(--muted)':signal.status==='stopped'?'var(--bad)':isTerminalSignalStatus(signal.status)?'var(--accent)':'var(--ok)';
+  }
+  if (signalAgeEl) signalAgeEl.textContent=signal?formatAge(Date.now()-signal.createdAt):'—';
+  if (signalProgressEl) {
+    const progress=signalProgressR(signal,Number(signal?.lastPrice));
+    signalProgressEl.textContent=Number.isFinite(progress)?`${progress>=0?'+':''}${progress.toFixed(2)}R`:'—';
+    signalProgressEl.style.color=Number.isFinite(progress)?(progress>=0?'var(--ok)':'var(--bad)'):'var(--muted)';
+  }
+}
+
+function updateSignalMarker(ad){
+  if (!candleSeries || typeof candleSeries.setMarkers!=='function') return;
+  if (!ad || !['buy','sell'].includes(ad.side) || !Number.isFinite(Number(ad.signalBarTs))) {
+    candleSeries.setMarkers([]);
+    return;
+  }
+  const terminal=isTerminalSignalStatus(ad.status);
+  const statusLabel=ad.status==='tp2'?'TP2':ad.status==='stopped'?'SL':ad.status==='expired'?'EXP':ad.side==='buy'?'BUY':'SELL';
+  candleSeries.setMarkers([{
+    time:Math.floor(Number(ad.signalBarTs)/1000),
+    position:ad.side==='buy'?'belowBar':'aboveBar',
+    color:terminal?(ad.status==='stopped'?'#ef4444':'#f59e0b'):(ad.side==='buy'?'#22c55e':'#ef4444'),
+    shape:ad.side==='buy'?'arrowUp':'arrowDown',
+    text:`${statusLabel} ${Number(ad.conf||0).toFixed(0)}%`
+  }]);
+}
+
+function renderAdvice(ad){
+  lastAdvice=ad;
   if (!adviceTextEl) return;
   adviceTextEl.textContent = ad.text;
   if (confValEl)  confValEl.textContent  = ad.conf ? ad.conf.toFixed(0)+'%' : '—';
@@ -957,6 +1107,45 @@ function applyAdvice(ad) {
     });
   }
   updateTradePriceLines(ad);
+  updateSignalMarker(ad);
+  renderSignalMeta(activeSignal);
+}
+
+function applyAdvice(ad) {
+  const reconciled=reconcileAdviceSignal(ad);
+  renderAdvice(reconciled.ad);
+  return reconciled;
+}
+
+function updateSignalLifecycle(price,ts=Date.now()){
+  if (!activeSignal || isTerminalSignalStatus(activeSignal.status) || !Number.isFinite(Number(price))) {
+    renderSignalMeta(activeSignal);
+    return;
+  }
+  const p=Number(price);
+  activeSignal.lastPrice=p;
+  let nextStatus=activeSignal.status;
+  if (Date.now()-activeSignal.createdAt>signalExpiryMs(activeSignal.tf)) nextStatus='expired';
+  else if (activeSignal.side==='buy') {
+    if (p<=activeSignal.sl) nextStatus='stopped';
+    else if (p>=activeSignal.tp2) nextStatus='tp2';
+    else if (p>=activeSignal.tp1) nextStatus='tp1';
+  } else {
+    if (p>=activeSignal.sl) nextStatus='stopped';
+    else if (p<=activeSignal.tp2) nextStatus='tp2';
+    else if (p<=activeSignal.tp1) nextStatus='tp1';
+  }
+  if (nextStatus==='tp1') activeSignal.tp1Hit=true;
+  if (nextStatus!==activeSignal.status) {
+    activeSignal.status=nextStatus;
+    if (isTerminalSignalStatus(nextStatus)) {
+      activeSignal.closedAt=Number(ts)||Date.now();
+      activeSignal.closedBarTs=Number(lastBars.at(-1)?.t)||Number(activeSignal.signalBarTs)||0;
+    }
+    persistActiveSignal();
+    logDebug(`حالة الإشارة: ${signalStatusText(activeSignal)} عند ${p.toFixed(3)}`);
+  }
+  renderAdvice(signalAsAdvice(activeSignal));
 }
 
 // ===== Pivot =====
@@ -1111,7 +1300,7 @@ function updateLivePriceLine() {
 }
 
 function updateTradePriceLines(ad) {
-  const active = ad && (ad.side === 'buy' || ad.side === 'sell');
+  const active = ad && (ad.side === 'buy' || ad.side === 'sell') && !isTerminalSignalStatus(ad.status);
   tradePriceLines.entry = replacePriceLine(tradePriceLines.entry, active ? Number(ad.entry) : NaN, { title:'Entry', color:'#f8fafc' });
   tradePriceLines.tp1   = replacePriceLine(tradePriceLines.tp1,   active ? Number(ad.tp1)   : NaN, { title:'TP1', color:'#22c55e' });
   tradePriceLines.tp2   = replacePriceLine(tradePriceLines.tp2,   active ? Number(ad.tp2)   : NaN, { title:'TP2', color:'#16a34a' });
@@ -1198,6 +1387,7 @@ function applyLiveQuote(quote){
   refreshFeedStatus();
   updateLivePriceLine();
   if (lastBars.length) updatePivot(lastBars,lastLive.price);
+  updateSignalLifecycle(lastLive.price,lastLive.ts);
   return true;
 }
 
@@ -1376,7 +1566,7 @@ async function fetchBarsAndUpdate(){
       enforceMTF:true,
       enforceFresh:true
     });
-    applyAdvice(advice);
+    const applied=applyAdvice(advice);
 
     refreshFeedStatus();
 
@@ -1389,11 +1579,10 @@ async function fetchBarsAndUpdate(){
     const last = lastBars[lastBars.length-1];
     logDebug(`تم جلب ${lastBars.length} شمعة مكتملة (${tf}) + ${lastMtfBars.map(x=>x.tf).join(',')||'بدون MTF'}. آخر إغلاق: ${last.c}`);
 
-    if (advice.side !== lastSignalSide && advice.side !== 'none') {
-      lastSignalSide = advice.side;
-      showToastSignal(advice);
+    if (applied.isNew) {
+      lastSignalSide=applied.ad.side;
+      showToastSignal(applied.ad);
     }
-    if (advice.side==='none') lastSignalSide='none';
   }catch(e){
     logDebug(`فشل جلب الشموع: ${e.message}`);
     lastBars = [];
@@ -1429,7 +1618,9 @@ if (toastCloseEl){
 // ===== Telegram Notify =====
 async function sendAdviceToTelegram(){
   if (!lastBars || !lastBars.length) return;
-  const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,enforceMTF:true,enforceFresh:true});
+  const ad=activeSignal&&!isTerminalSignalStatus(activeSignal.status)
+    ? signalAsAdvice(activeSignal)
+    : computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,enforceMTF:true,enforceFresh:true});
   const base = getBase();
   const text = [
     'إشارة GoldSignalsX',
@@ -1439,6 +1630,7 @@ async function sendAdviceToTelegram(){
     ad.tp2   ? `TP2: ${ad.tp2.toFixed(2)}` : '',
     ad.sl    ? `SL: ${ad.sl.toFixed(2)}` : '',
     ad.conf  ? `ثقة: ${ad.conf.toFixed(0)}%` : '',
+    ad.status ? `الحالة: ${signalStatusText(activeSignal)}` : '',
     ad.pattern ? `نمط: ${ad.pattern}` : ''
   ].filter(Boolean).join('\n');
 
@@ -1670,6 +1862,7 @@ function setupUI(){
 document.addEventListener('DOMContentLoaded', ()=>{
   setBase(getBase());
   restoreSignalSettings();
+  restoreActiveSignal();
   setupUI();
   applyModeProfile(lastMarketState);
   ensureCharts();
