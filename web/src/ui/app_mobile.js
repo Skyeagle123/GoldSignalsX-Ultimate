@@ -1,4 +1,4 @@
-// app_mobile.js — GoldSignalsX • Advanced v9
+// app_mobile.js — GoldSignalsX • Advanced v10
 // يربط واجهة الموبايل مع ال Worker:
 //  - /price  → سعر حي
 //  - /bars   → شموع + مؤشرات + نصيحة + Pivot + Backtest
@@ -141,6 +141,7 @@ const nyStartEl = $('#nyStart');
 const nyEndEl = $('#nyEnd');
 const pivotFilterOnEl = $('#pivotFilterOn');
 const pivotDistanceEl = $('#pivotDistance');
+const newsInfluenceOnEl = $('#newsInfluenceOn');
 
 // ================== حالة عامة ==================
 
@@ -206,6 +207,14 @@ function setBase(v) {
   const x = (v || '').replace(/\/+$/,'');
   try { localStorage.setItem('GSX_BASE_URL', x); } catch {}
   if (baseIn) baseIn.value = x;
+}
+
+function newsContextForAdvice() {
+  if (!newsInfluenceOnEl?.checked || typeof window === 'undefined') return null;
+  const news = window.GSXNewsState;
+  const updatedAt = Number(news?.updatedAt);
+  if (!news?.ok || news?.stale || !Number.isFinite(updatedAt) || Date.now() - updatedAt > 60 * 60 * 1000) return null;
+  return news;
 }
 
 function fmtDateTime(ts) {
@@ -907,6 +916,27 @@ function computeAdvice(bars, context={}){
     }
   }
 
+  let newsBlocked=false;
+  const news=context.news;
+  if (news?.ok && !news?.stale) {
+    if (news.safety?.blockTechnicalSignal) {
+      newsBlocked=true;
+      neutralReasons.unshift(news.safety.reason || 'خبر شديد التأثير؛ تم إيقاف الدخول مؤقتاً حتى يهدأ تذبذب السوق');
+    }
+    const direction=news.goldBias?.direction;
+    const confidence=Math.max(0,Math.min(100,Number(news.goldBias?.confidence)||0));
+    const weight=Math.min(0.9,Math.max(0,(confidence-50)/40*0.9));
+    if (direction==='bullish'&&weight>0) {
+      bullScore+=weight;
+      bullReasons.push(`الأخبار داعمة للذهب بوزن محدود (${confidence.toFixed(0)}%)`);
+    } else if (direction==='bearish'&&weight>0) {
+      bearScore+=weight;
+      bearReasons.push(`الأخبار ضاغطة على الذهب بوزن محدود (${confidence.toFixed(0)}%)`);
+    } else {
+      neutralReasons.push('الميل الإخباري محايد؛ لا يغيّر القرار الفني');
+    }
+  }
+
   const leader=bullScore>=bearScore?'buy':'sell';
   const leaderScore=Math.max(bullScore,bearScore), opponentScore=Math.min(bullScore,bearScore);
   const margin=leaderScore-opponentScore;
@@ -944,7 +974,7 @@ function computeAdvice(bars, context={}){
     }
   }
 
-  let side=(leaderScore>=threshold && margin>=2 && candleConfirmed && confirmations>=requiredMtf && !(oppositions>confirmations && mtfAvailable) && !nyBlocked && !pivotBlocked)?leader:'none';
+  let side=(leaderScore>=threshold && margin>=2 && candleConfirmed && confirmations>=requiredMtf && !(oppositions>confirmations && mtfAvailable) && !nyBlocked && !pivotBlocked && !newsBlocked)?leader:'none';
   const liveSource=context.live?.source||'';
   const barsSource=context.barsSource||'';
   const livePrice=Number(context.live?.price);
@@ -1758,6 +1788,7 @@ async function fetchBarsAndUpdate(){
       barsSource:lastBarsSource,
       feedIntegrityBlocked,
       feedIntegrityReason,
+      news:newsContextForAdvice(),
       enforceMTF:true,
       enforceFresh:true
     });
@@ -2062,7 +2093,8 @@ function saveSignalSettings(){
     macdMode:value(macdModeEl),macdFast:value(macdFastEl),macdSlow:value(macdSlowEl),macdSig:value(macdSigEl),
     stochMode:value(stochModeEl),stochK:value(stochKEl),stochD:value(stochDEl),
     nyFilterOn:checked(nyFilterOnEl),nyStart:value(nyStartEl),nyEnd:value(nyEndEl),
-    pivotFilterOn:checked(pivotFilterOnEl),pivotDistance:value(pivotDistanceEl)
+    pivotFilterOn:checked(pivotFilterOnEl),pivotDistance:value(pivotDistanceEl),
+    newsInfluenceOn:checked(newsInfluenceOnEl)
   };
   try { localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings)); } catch {}
 }
@@ -2076,8 +2108,8 @@ function restoreSignalSettings(){
   if (settings.mode==='safe'&&modeSafeEl) modeSafeEl.checked=true;
   else if (settings.mode==='fast'&&modeFastEl) modeFastEl.checked=true;
   else if (modeSmartEl) modeSmartEl.checked=true;
-  ['autoProfile','emaOn','rsiOn','macdOn','stochOn','bbOn','nyFilterOn','pivotFilterOn']
-    .forEach(key=>setChecked({autoProfile:autoProfileEl,emaOn:emaOnEl,rsiOn:rsiOnEl,macdOn:macdOnEl,stochOn:stochOnEl,bbOn:bbOnEl,nyFilterOn:nyFilterOnEl,pivotFilterOn:pivotFilterOnEl}[key],key));
+  ['autoProfile','emaOn','rsiOn','macdOn','stochOn','bbOn','nyFilterOn','pivotFilterOn','newsInfluenceOn']
+    .forEach(key=>setChecked({autoProfile:autoProfileEl,emaOn:emaOnEl,rsiOn:rsiOnEl,macdOn:macdOnEl,stochOn:stochOnEl,bbOn:bbOnEl,nyFilterOn:nyFilterOnEl,pivotFilterOn:pivotFilterOnEl,newsInfluenceOn:newsInfluenceOnEl}[key],key));
   const values={atrMode:atrModeEl,atrPeriod:atrPeriodEl,bbMode:bbModeEl,bbPeriod:bbPeriodEl,bbStd:bbStdEl,
     emaMode:emaModeEl,emaFast:emaFastInEl,emaSlow:emaSlowInEl,rsiMode:rsiModeEl,rsiPeriod:rsiPeriodEl,
     macdMode:macdModeEl,macdFast:macdFastEl,macdSlow:macdSlowEl,macdSig:macdSigEl,
@@ -2088,7 +2120,7 @@ function restoreSignalSettings(){
 function recalculateCurrentAdvice(){
   if (!lastBars||!lastBars.length) return;
   analyzeMarket(lastBars,lastBars.map(b=>b.c));
-  const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,feedIntegrityBlocked,feedIntegrityReason,enforceMTF:true,enforceFresh:true});
+  const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,feedIntegrityBlocked,feedIntegrityReason,news:newsContextForAdvice(),enforceMTF:true,enforceFresh:true});
   applyAdvice(ad);
   updatePivot(lastBars,lastLive?.price||lastBars.at(-1)?.c);
 }
@@ -2230,7 +2262,7 @@ function setupUI(){
 
   const savedFields=[atrModeEl,atrPeriodEl,bbModeEl,bbPeriodEl,bbStdEl,emaModeEl,emaFastInEl,emaSlowInEl,
     rsiModeEl,rsiPeriodEl,macdModeEl,macdFastEl,macdSlowEl,macdSigEl,stochModeEl,stochKEl,stochDEl,
-    nyFilterOnEl,nyStartEl,nyEndEl,pivotFilterOnEl,pivotDistanceEl];
+    nyFilterOnEl,nyStartEl,nyEndEl,pivotFilterOnEl,pivotDistanceEl,newsInfluenceOnEl];
   savedFields.filter(Boolean).forEach(el=>el.addEventListener('change',()=>{
     saveSignalSettings();
     recalculateCurrentAdvice();
@@ -2263,3 +2295,5 @@ document.addEventListener('visibilitychange',()=>{
   connectLiveStream();
   fetchPriceOnce();
 });
+
+window.addEventListener('gsx:news-updated',()=>recalculateCurrentAdvice());
