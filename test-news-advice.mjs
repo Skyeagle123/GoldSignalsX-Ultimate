@@ -46,6 +46,7 @@ function advice(bars, news = null) {
       expectedMtf: 2,
       live: { price: bars.at(-1).c, ts: Date.now(), receivedAt: Date.now(), source: 'd1' },
       barsSource: 'd1',
+      dataQuality: { ok: true, gaps: 0, duplicates: 0, reason: 'جودة الشموع سليمة' },
       enforceMTF: true,
       enforceFresh: true,
       news
@@ -85,5 +86,49 @@ const opposing = advice(up, {
   safety: { blockTechnicalSignal: false }
 });
 assert.notEqual(opposing.side, 'sell', 'news alone must never reverse a strong technical setup into a trade');
+
+context.input = {
+  bars: up,
+  context: {
+    tf: '1m',
+    live: { price: up.at(-1).c, ts: Date.now(), receivedAt: Date.now(), source: 'd1' },
+    barsSource: 'd1',
+    dataQuality: { ok: false, gaps: 1, duplicates: 0, reason: 'جودة الشموع غير سليمة: فجوة اختبار' },
+    enforceFresh: true
+  }
+};
+const badQuality = vm.runInContext('computeAdvice(input.bars,input.context)', context);
+assert.equal(badQuality.side, 'none', 'bad candle quality must veto a live trade');
+assert.ok(badQuality.reasons.some(reason => reason.includes('فجوة اختبار')));
+
+context.qualityRows = [
+  { t: Date.UTC(2026,7,27,12,0), o:2400,h:2401,l:2399,c:2400.5,v:1 },
+  { t: Date.UTC(2026,7,27,12,1), o:2400.5,h:2401,l:2400,c:2400.7,v:1 },
+  { t: Date.UTC(2026,7,27,12,1), o:2400.5,h:2401,l:2400,c:2400.7,v:1 },
+  { t: Date.UTC(2026,7,27,12,4), o:2400.7,h:2401,l:2400,c:2400.8,v:1 }
+];
+const inspected = vm.runInContext("normalizeBarsFrame(qualityRows,'1m')", context);
+assert.equal(inspected.bars.length, 3, 'duplicate timestamps must be removed');
+assert.equal(inspected.quality.duplicates, 1);
+assert.equal(inspected.quality.gaps, 1);
+assert.equal(inspected.quality.ok, false);
+
+context.weekendRows = [
+  { t: Date.UTC(2026,7,28,20,59), o:2400,h:2401,l:2399,c:2400.5,v:1 },
+  { t: Date.UTC(2026,7,30,22,0), o:2401,h:2402,l:2400,c:2401.5,v:1 }
+];
+const weekend = vm.runInContext("normalizeBarsFrame(weekendRows,'1m')", context);
+assert.equal(weekend.quality.gaps, 0, 'normal weekend market closure must not be flagged');
+
+context.trades = [
+  { netR: 1.25, ambiguous: false, conf: 82 },
+  { netR: -1, ambiguous: false, conf: 74 },
+  { netR: 0.75, ambiguous: false, conf: 78 },
+  { netR: -1, ambiguous: true, conf: 71 }
+];
+const stats = vm.runInContext('summarizeBacktestTrades(trades)', context);
+assert.ok(stats.winLow < stats.winPct && stats.winPct < stats.winHigh, 'win rate must include a 95% uncertainty range');
+assert.equal(stats.avgSignalScore, 76.25, 'the displayed model score must stay separate from observed win rate');
+assert.equal(vm.runInContext("backtestSampleLabel({trades:4,oos:{trades:1,netR:-1}})", context), 'عينة غير كافية');
 
 console.log('news advice tests passed');

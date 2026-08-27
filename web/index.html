@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>GoldSignalsX – Mobile</title>
   <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <meta name="theme-color" content="#0b0f17">
   <style>
     :root{
@@ -249,7 +250,7 @@
       <div id="adviceCard" class="card" style="background:var(--card2)">
         <div class="value" id="adviceText">—</div>
         <div class="row" style="margin-top:8px;gap:12px">
-          <span class="chip">الوثوقية: <b id="confVal">—</b></span>
+          <span class="chip">درجة النظام: <b id="confVal">—</b></span>
           <span class="chip">نقاط شراء: <b id="bullScoreVal">—</b></span>
           <span class="chip">نقاط بيع: <b id="bearScoreVal">—</b></span>
           <span class="chip">تأكيد MTF: <b id="mtfVal">—</b></span>
@@ -300,7 +301,7 @@
       </div>
       <div style="overflow:auto;margin-top:10px">
         <table class="nice-table" id="btTable">
-          <thead><tr><th>الفترة</th><th>الشموع</th><th>الصفقات</th><th>Win%</th><th>Net R</th><th>MaxDD</th><th>PF</th><th>آخر 30%</th></tr></thead>
+          <thead><tr><th>الفترة</th><th>الشموع</th><th>الصفقات</th><th>Win%</th><th>نطاق 95%</th><th>Net R</th><th>MaxDD</th><th>PF</th><th>آخر 30%</th><th>الحكم</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -369,7 +370,12 @@
 
   <!-- Lightweight Charts + App -->
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-  <script src="./src/ui/news.js?v=20260827-11"></script>
-  <script src="./src/ui/app_mobile.js?v=20260827-10"></script>
+  <script src="./src/ui/news.js?v=20260827-12"></script>
+  <script src="./src/ui/app_mobile.js?v=20260827-12"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {}));
+    }
+  </script>
 </body>
 </html>

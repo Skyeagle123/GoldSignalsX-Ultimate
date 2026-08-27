@@ -151,6 +151,8 @@ let lastBars = [];
 let lastLive = null;   // {price, bid, ask, spread, ts, receivedAt, source, transport}
 let lastReference = null;
 let lastBarsSource = '';
+let lastBarsStorage = '';
+let lastBarsQuality = { ok:false, gaps:0, duplicates:0, reason:'لم تُفحص الشموع بعد' };
 let lastAnalysisTf = '1m';
 let lastMtfBars = []; // [{ tf, bars, source }]
 let lastMtfFetchAt = 0;
@@ -260,7 +262,8 @@ function refreshFeedStatus() {
   if (feedSourceEl) {
     const liveSource = lastLive.source || '—';
     const sameSource = !lastBarsSource || lastBarsSource === liveSource;
-    feedSourceEl.textContent = sameSource ? liveSource : `${liveSource} / شموع ${lastBarsSource}`;
+    const storage = lastBarsStorage ? ` • ${lastBarsStorage.toUpperCase()}` : '';
+    feedSourceEl.textContent = sameSource ? `${liveSource}${storage}` : `${liveSource} / شموع ${lastBarsSource}${storage}`;
     feedSourceEl.style.color = sameSource ? 'var(--ok)' : 'var(--accent)';
   }
   if (feedSpreadEl) feedSpreadEl.textContent = Number.isFinite(lastLive.spread) ? lastLive.spread.toFixed(3) : '—';
@@ -804,6 +807,9 @@ function timeframeBias(bars) {
 function computeAdvice(bars, context={}){
   const empty = (text,reasons=[]) => ({ side:'none', text, conf:0, entry:null,tp1:null,tp2:null,sl:null,reasons,pattern:'لا يوجد نمط واضح' });
   if (!bars || bars.length<40) return empty('بيانات غير كافية',['نحتاج 40 شمعة مكتملة على الأقل.']);
+  if (context.enforceFresh && context.dataQuality?.ok===false) {
+    return empty('مراقبة فقط',[context.dataQuality.reason || 'جودة الشموع غير سليمة؛ تم منع الإشارة احتياطياً.']);
+  }
 
   const closes=bars.map(b=>b.c), highs=bars.map(b=>b.h), lows=bars.map(b=>b.l);
   const emaFlen=+(emaFastInEl?.value||10), emaSlen=+(emaSlowInEl?.value||34);
@@ -981,7 +987,7 @@ function computeAdvice(bars, context={}){
   const liveAge=Date.now()-Number(context.live?.receivedAt||context.live?.ts||0);
   const priceGap=Number.isFinite(livePrice)?Math.abs(livePrice-C):Infinity;
   const priceAligned=priceGap<=Math.max(atr*0.75,C*0.002);
-  const storedBars=barsSource==='d1'||barsSource==='kv';
+  const storedBars=context.barsStorage==='d1'||barsSource==='d1'||barsSource==='kv';
   const sameProvider=!liveSource || !barsSource || liveSource===barsSource || (liveSource.startsWith('gold-ticks') && barsSource==='gold-ticks');
   const sourceConsistent=sameProvider || (storedBars && priceAligned);
   if (!sourceConsistent) neutralReasons.unshift(`السعر (${liveSource}) والشموع (${barsSource}) غير متوافقين؛ تم منع الإشارة`);
@@ -1715,22 +1721,80 @@ function startPriceLoop(){
 }
 
 // ===== جلب الشموع من /bars =====
-function normalizeCompletedBars(rows,tf) {
+function newYorkClockParts(ts) {
+  const parts=new Intl.DateTimeFormat('en-US',{
+    timeZone:'America/New_York',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false
+  }).formatToParts(new Date(ts));
+  const get=type=>parts.find(part=>part.type===type)?.value||'';
+  return { weekday:get('weekday'), minute:Number(get('hour'))%24*60+Number(get('minute')) };
+}
+
+function isExpectedMarketClosure(previousTs,nextTs,duration) {
+  const gap=nextTs-previousTs;
+  if (!Number.isFinite(gap) || gap<=duration*1.5) return false;
+  if (duration>=86400000 && gap>=2*86400000 && gap<=4*86400000) return true;
+  if (gap>=30*60*60*1000 && gap<=80*60*60*1000) {
+    const previousDay=newYorkClockParts(previousTs+duration).weekday;
+    const nextDay=newYorkClockParts(nextTs).weekday;
+    if (previousDay==='Fri' && (nextDay==='Sun'||nextDay==='Mon')) return true;
+  }
+  if (gap<=Math.max(3*60*60*1000,duration*3)) {
+    const previousEnd=newYorkClockParts(previousTs+duration).minute;
+    const nextStart=newYorkClockParts(nextTs).minute;
+    return previousEnd>=16*60+30 && previousEnd<=17*60+30 &&
+      nextStart>=17*60+30 && nextStart<=18*60+30;
+  }
+  return false;
+}
+
+function inspectBarQuality(bars,tf,duplicateTimes=new Set(),invalid=0) {
+  const duration=TF_MS[tf]||60000;
+  const recent=bars.slice(-Math.min(120,bars.length));
+  const recentStart=Number(recent[0]?.t)||Infinity;
+  const duplicates=[...duplicateTimes].filter(ts=>ts>=recentStart).length;
+  let gaps=0;
+  for (let i=1;i<recent.length;i++) {
+    const delta=recent[i].t-recent[i-1].t;
+    if (delta>duration*1.5 && !isExpectedMarketClosure(recent[i-1].t,recent[i].t,duration)) gaps++;
+  }
+  const ok=duplicates===0 && gaps===0;
+  const reasons=[];
+  if (duplicates) reasons.push(`${duplicates} توقيت شمعة مكرر`);
+  if (gaps) reasons.push(`${gaps} فجوة غير طبيعية ضمن أحدث الشموع`);
+  return {
+    ok,gaps,duplicates,invalid,
+    reason:ok?'جودة الشموع سليمة':`جودة الشموع غير سليمة: ${reasons.join('، ')}؛ تم منع الإشارة احتياطياً.`
+  };
+}
+
+function normalizeBarsFrame(rows,tf) {
   const duration=TF_MS[tf]||60000;
   const now=Date.now();
+  let invalid=0;
   const mapped=(Array.isArray(rows)?rows:[]).map(b=>{
     const rawT=b.t??b.time??b.ts??b.isoTime??b.date??0;
     let t=typeof rawT==='string'?Date.parse(rawT):Number(rawT);
     if (Number.isFinite(t) && t<1e12) t*=1000;
-    return { t,o:+b.o,h:+b.h,l:+b.l,c:+b.c,v:+(b.v||0),complete:b.complete };
-  }).filter(b=>
-    Number.isFinite(b.t) && Number.isFinite(b.o) && Number.isFinite(b.h) &&
-    Number.isFinite(b.l) && Number.isFinite(b.c) && b.h>=b.l && b.complete!==false
-  ).sort((a,b)=>a.t-b.t);
+    const bar={ t,o:+b.o,h:+b.h,l:+b.l,c:+b.c,v:+(b.v||0),complete:b.complete,provider:String(b.provider||'') };
+    const valid=Number.isFinite(bar.t) && Number.isFinite(bar.o) && Number.isFinite(bar.h) &&
+      Number.isFinite(bar.l) && Number.isFinite(bar.c) && bar.h>=bar.l && bar.complete!==false;
+    if (!valid) invalid++;
+    return valid?bar:null;
+  }).filter(Boolean).sort((a,b)=>a.t-b.t)
+    .filter(b=>b.complete===true || b.t+duration<=now+2000);
 
-  // OANDA marks completed candles explicitly. Fallback sources do not, so
-  // reject any candle whose time bucket has not closed yet.
-  return mapped.filter(b=>b.complete===true || b.t+duration<=now+2000);
+  const duplicateTimes=new Set();
+  const unique=new Map();
+  for (const bar of mapped) {
+    if (unique.has(bar.t)) duplicateTimes.add(bar.t);
+    unique.set(bar.t,bar);
+  }
+  const bars=[...unique.values()].sort((a,b)=>a.t-b.t);
+  return { bars,quality:inspectBarQuality(bars,tf,duplicateTimes,invalid) };
+}
+
+function normalizeCompletedBars(rows,tf) {
+  return normalizeBarsFrame(rows,tf).bars;
 }
 
 async function fetchBarsFrame(base,tf,limit) {
@@ -1738,10 +1802,24 @@ async function fetchBarsFrame(base,tf,limit) {
   const response=await fetch(url,{cache:'no-store'});
   if (!response.ok) throw new Error(`${tf}: HTTP ${response.status}`);
   const source=response.headers.get('x-gsx-source')||'';
+  const storage=response.headers.get('x-gsx-storage')||'';
+  const storedGapCount=Number(response.headers.get('x-gsx-gaps'));
   const rows=await response.json();
-  const bars=normalizeCompletedBars(rows,tf);
+  const {bars,quality}=normalizeBarsFrame(rows,tf);
   if (!bars.length) throw new Error(`${tf}: لا توجد شموع مكتملة`);
-  return {tf,bars,source};
+  return {tf,bars,source,storage,quality,storedGapCount:Number.isFinite(storedGapCount)?storedGapCount:null};
+}
+
+async function fetchCentralSignal(base,tf) {
+  try {
+    const response=await fetch(`${base}/signals?tf=${encodeURIComponent(tf)}`,{cache:'no-store'});
+    if (!response.ok) return null;
+    const payload=await response.json();
+    const state=payload?.signals?.[0]?.state;
+    return validSignal(state)?state:null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchBarsAndUpdate(){
@@ -1753,6 +1831,7 @@ async function fetchBarsAndUpdate(){
   const L = Math.max(300, Math.min(+(limitIn?.value || 1200), 5000));
 
   try{
+    const centralSignalPromise=fetchCentralSignal(base,tf);
     const higher=HIGHER_TF[tf]||[];
     const refreshMtf=tf!==lastAnalysisTf || !lastMtfBars.length || Date.now()-lastMtfFetchAt>=60000;
     const settled=await Promise.allSettled([
@@ -1765,12 +1844,16 @@ async function fetchBarsAndUpdate(){
     lastAnalysisTf=tf;
     lastBars=primary.bars;
     lastBarsSource=primary.source;
+    lastBarsStorage=primary.storage;
+    lastBarsQuality=primary.quality;
     if (refreshMtf) {
       lastMtfBars=settled.slice(1)
-        .filter(result=>result.status==='fulfilled' && result.value.bars.length>=40)
+        .filter(result=>result.status==='fulfilled' && result.value.bars.length>=40 && result.value.quality.ok)
         .map(result=>result.value);
       lastMtfFetchAt=Date.now();
       settled.slice(1).filter(result=>result.status==='rejected').forEach(result=>logDebug(`MTF: ${result.reason?.message||result.reason}`));
+      settled.slice(1).filter(result=>result.status==='fulfilled' && !result.value.quality.ok)
+        .forEach(result=>logDebug(`MTF ${result.value.tf}: ${result.value.quality.reason}`));
     } else if (tfChanged) {
       lastMtfBars=[];
     }
@@ -1780,18 +1863,26 @@ async function fetchBarsAndUpdate(){
 
     const closes = lastBars.map(b=>b.c);
     analyzeMarket(lastBars, closes);
-    const advice=computeAdvice(lastBars,{
+    let advice=computeAdvice(lastBars,{
       tf:lastAnalysisTf,
       mtf:lastMtfBars,
       expectedMtf:higher.length,
       live:lastLive,
       barsSource:lastBarsSource,
+      barsStorage:lastBarsStorage,
+      dataQuality:lastBarsQuality,
       feedIntegrityBlocked,
       feedIntegrityReason,
       news:newsContextForAdvice(),
       enforceMTF:true,
       enforceFresh:true
     });
+    const centralSignal=await centralSignalPromise;
+    if (centralSignal&&(!isTerminalSignalStatus(centralSignal.status)||activeSignal?.id===centralSignal.id)) {
+      activeSignal={...centralSignal};
+      persistActiveSignal();
+      advice=signalAsAdvice(activeSignal);
+    }
     const applied=applyAdvice(advice);
 
     refreshFeedStatus();
@@ -1803,7 +1894,7 @@ async function fetchBarsAndUpdate(){
     }
 
     const last = lastBars[lastBars.length-1];
-    logDebug(`تم جلب ${lastBars.length} شمعة مكتملة (${tf}) + ${lastMtfBars.map(x=>x.tf).join(',')||'بدون MTF'}. آخر إغلاق: ${last.c}`);
+    logDebug(`تم جلب ${lastBars.length} شمعة مكتملة (${tf}) + ${lastMtfBars.map(x=>x.tf).join(',')||'بدون MTF'}. ${lastBarsQuality.reason}. آخر إغلاق: ${last.c}`);
 
     if (applied.isNew) {
       lastSignalSide=applied.ad.side;
@@ -1812,6 +1903,9 @@ async function fetchBarsAndUpdate(){
   }catch(e){
     logDebug(`فشل جلب الشموع: ${e.message}`);
     lastBars = [];
+    lastBarsSource='';
+    lastBarsStorage='';
+    lastBarsQuality={ok:false,gaps:0,duplicates:0,reason:'تعذّر فحص الشموع'};
     applyAdvice({ side:'none', text:'مراقبة فقط', conf:0, entry:null,tp1:null,tp2:null,sl:null, reasons:[] });
   }finally{
     barsRequestRunning = false;
@@ -1857,7 +1951,7 @@ async function sendAdviceToTelegram(){
     ad.tp1   ? `TP1: ${ad.tp1.toFixed(2)}` : '',
     ad.tp2   ? `TP2: ${ad.tp2.toFixed(2)}` : '',
     ad.sl    ? `SL: ${ad.sl.toFixed(2)}` : '',
-    ad.conf  ? `ثقة: ${ad.conf.toFixed(0)}%` : '',
+    ad.conf  ? `درجة النظام: ${ad.conf.toFixed(0)}/100` : '',
     ad.status ? `الحالة: ${signalStatusText(activeSignal)}` : '',
     ad.pattern ? `نمط: ${ad.pattern}` : ''
   ].filter(Boolean).join('\n');
@@ -1978,6 +2072,23 @@ function evaluateHistoricalTrade(signal,bars,startIndex,maxBars,costUsd=0){
   return {grossR,netR:grossR-costR,outcome,tp1Hit,ambiguous,exitIndex,risk,costR};
 }
 
+function wilsonInterval(wins,total,z=1.96){
+  if (!total) return {low:0,high:0};
+  const p=wins/total;
+  const denominator=1+z*z/total;
+  const center=(p+z*z/(2*total))/denominator;
+  const margin=z*Math.sqrt((p*(1-p)+z*z/(4*total))/total)/denominator;
+  return {low:Math.max(0,center-margin)*100,high:Math.min(1,center+margin)*100};
+}
+
+function backtestSampleLabel(summary){
+  if (!summary||summary.trades<20) return 'عينة غير كافية';
+  if (summary.oos&&summary.oos.trades<10) return 'اختبار خارجي ضعيف';
+  if (summary.oos&&summary.oos.netR<=0) return 'غير ثابت خارج العينة';
+  if (summary.trades<60) return 'نتيجة أولية';
+  return 'عينة مقبولة';
+}
+
 function summarizeBacktestTrades(trades){
   let equity=0,peak=0,maxDD=0,grossProfit=0,grossLoss=0,wins=0;
   for(const trade of trades){
@@ -1988,6 +2099,9 @@ function summarizeBacktestTrades(trades){
     else grossLoss+=Math.abs(trade.netR);
   }
   const count=trades.length;
+  const interval=wilsonInterval(wins,count);
+  const scored=trades.filter(trade=>Number.isFinite(Number(trade.conf)));
+  const avgSignalScore=scored.length?scored.reduce((sum,trade)=>sum+Number(trade.conf),0)/scored.length:NaN;
   return {
     trades:count,
     netR:equity,
@@ -1995,7 +2109,11 @@ function summarizeBacktestTrades(trades){
     maxDD,
     profitFactor:grossLoss>0?grossProfit/grossLoss:(grossProfit>0?Infinity:0),
     avgR:count?equity/count:0,
-    ambiguous:trades.filter(t=>t.ambiguous).length
+    ambiguous:trades.filter(t=>t.ambiguous).length,
+    winLow:interval.low,
+    winHigh:interval.high,
+    avgSignalScore,
+    calibrationGap:Number.isFinite(avgSignalScore)?avgSignalScore-(count?wins/count*100:0):NaN
   };
 }
 
@@ -2023,7 +2141,7 @@ function runBacktestOnBars(bars,options={}){
     const maxBars=Math.max(1,Math.ceil(signalExpiryMs(tf)/duration));
     const result=evaluateHistoricalTrade(ad,bars,i+1,maxBars,costUsd);
     if (!result) continue;
-    trades.push({...result,side:ad.side,signalIndex:i,entry:ad.entry,createdAt:bars[i].t});
+    trades.push({...result,side:ad.side,signalIndex:i,entry:ad.entry,conf:ad.conf,createdAt:bars[i].t});
     i=Math.max(i,result.exitIndex);
   }
 
@@ -2031,7 +2149,8 @@ function runBacktestOnBars(bars,options={}){
   const splitIndex=Math.floor(bars.length*0.7);
   const oosDetails=trades.filter(trade=>trade.signalIndex>=splitIndex);
   const oos=summarizeBacktestTrades(oosDetails);
-  return {...summary,oos,oosDetails,costUsd,tf,rows:bars.length,details:trades};
+  const combined={...summary,oos,oosDetails,costUsd,tf,rows:bars.length,details:trades};
+  return {...combined,sampleLabel:backtestSampleLabel(combined)};
 }
 
 function selectedBacktestTimeframes(){
@@ -2049,12 +2168,12 @@ function renderBacktestResults(results,failures=[]){
     btTableBody.innerHTML='';
     for(const res of valid){
       const row=document.createElement('tr');
-      row.innerHTML=`<td>${res.tf}</td><td>${res.rows}</td><td>${res.trades}</td><td>${res.winPct.toFixed(1)}%</td><td>${res.netR>=0?'+':''}${res.netR.toFixed(2)}R</td><td>${res.maxDD.toFixed(2)}R</td><td>${formatProfitFactor(res.profitFactor)}</td><td>${res.oos.trades} • ${res.oos.netR>=0?'+':''}${res.oos.netR.toFixed(2)}R</td>`;
+      row.innerHTML=`<td>${res.tf}</td><td>${res.rows}</td><td>${res.trades}</td><td>${res.winPct.toFixed(1)}%</td><td>${res.winLow.toFixed(1)}–${res.winHigh.toFixed(1)}%</td><td>${res.netR>=0?'+':''}${res.netR.toFixed(2)}R</td><td>${res.maxDD.toFixed(2)}R</td><td>${formatProfitFactor(res.profitFactor)}</td><td>${res.oos.trades} • ${res.oos.netR>=0?'+':''}${res.oos.netR.toFixed(2)}R</td><td>${res.sampleLabel}</td>`;
       btTableBody.appendChild(row);
     }
     for(const failure of failures){
       const row=document.createElement('tr');
-      row.innerHTML=`<td>${failure.tf}</td><td colspan="7" style="color:var(--bad)">${failure.message}</td>`;
+      row.innerHTML=`<td>${failure.tf}</td><td colspan="9" style="color:var(--bad)">${failure.message}</td>`;
       btTableBody.appendChild(row);
     }
   }
@@ -2074,8 +2193,11 @@ function renderBacktestResults(results,failures=[]){
 
   if (btSummaryEl) {
     const noTrades=valid.length && total.trades===0?' • الشروط الحالية لم تنتج صفقات مؤكدة ضمن البيانات المتوفرة.':'';
+    const interval=total.trades?` • نطاق Win% الإحصائي 95%: ${total.winLow.toFixed(1)}–${total.winHigh.toFixed(1)}%`:'';
+    const calibration=Number.isFinite(total.avgSignalScore)?` • متوسط درجة النظام ${total.avgSignalScore.toFixed(1)}/100 (ليست احتمال ربح)`:'';
+    const verdict=` • الحكم: ${backtestSampleLabel({...total,oos:totalOos})}`;
     const failed=failures.length?` • تعذّر: ${failures.map(item=>item.tf).join('، ')}`:'';
-    btSummaryEl.textContent=`اختُبرت ${valid.length} فترة • الحالات الملتبسة تُحسب SL أولاً • النتائج تشمل Spread وSlippage.${noTrades}${failed}`;
+    btSummaryEl.textContent=`اختُبرت ${valid.length} فترة • الحالات الملتبسة تُحسب SL أولاً • النتائج تشمل Spread وSlippage.${interval}${calibration}${verdict}${noTrades}${failed}`;
   }
 }
 
@@ -2120,7 +2242,7 @@ function restoreSignalSettings(){
 function recalculateCurrentAdvice(){
   if (!lastBars||!lastBars.length) return;
   analyzeMarket(lastBars,lastBars.map(b=>b.c));
-  const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,feedIntegrityBlocked,feedIntegrityReason,news:newsContextForAdvice(),enforceMTF:true,enforceFresh:true});
+  const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,barsStorage:lastBarsStorage,dataQuality:lastBarsQuality,feedIntegrityBlocked,feedIntegrityReason,news:newsContextForAdvice(),enforceMTF:true,enforceFresh:true});
   applyAdvice(ad);
   updatePivot(lastBars,lastLive?.price||lastBars.at(-1)?.c);
 }

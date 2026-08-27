@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GoldSignalsX">
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <circle cx="256" cy="256" r="184" fill="#111827" stroke="#f59e0b" stroke-width="18"/>
+  <path d="M256 104v286M176 154c0-34 36-54 80-54s80 20 80 54c0 72-160 34-160 108 0 38 38 58 80 58s80-20 80-58" fill="none" stroke="#fbbf24" stroke-width="34" stroke-linecap="round"/>
+  <path d="M128 374h256" stroke="#10b981" stroke-width="26" stroke-linecap="round"/>
+</svg>
