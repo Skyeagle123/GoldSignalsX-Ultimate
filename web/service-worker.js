@@ -1,4 +1,4 @@
-const CACHE = 'gsx-shell-20260827-12';
+const CACHE = 'gsx-shell-20260828-13';
 const SHELL = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', event => {

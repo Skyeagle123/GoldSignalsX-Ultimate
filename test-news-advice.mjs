@@ -101,6 +101,24 @@ const badQuality = vm.runInContext('computeAdvice(input.bars,input.context)', co
 assert.equal(badQuality.side, 'none', 'bad candle quality must veto a live trade');
 assert.ok(badQuality.reasons.some(reason => reason.includes('فجوة اختبار')));
 
+context.rsiCloses=Array.from({length:80},(_,index)=>2400+Math.sin(index/4)*8+index*0.1);
+const rsiValues=vm.runInContext('calcRSI(rsiCloses,14)',context);
+assert.equal(rsiValues.length,context.rsiCloses.length,'RSI values must stay aligned with candle timestamps');
+assert.equal(rsiValues.slice(0,14).every(value=>value===null),true);
+assert.equal(Number.isFinite(rsiValues[14]),true,'the first RSI value belongs to candle index 14');
+assert.equal(rsiValues.filter(Number.isFinite).every(value=>value>=0&&value<=100),true);
+
+context.previewTrade={
+  side:'buy',text:'local buy',conf:80,entry:100,tp1:101,tp2:102,sl:99,
+  reasons:['local'],tf:'1m',signalBarTs:Date.now()
+};
+vm.runInContext('activeSignal=null; applyAdvice(previewTrade,{authoritative:true})',context);
+assert.equal(vm.runInContext('activeSignal',context),null,'an authoritative render must never turn a local preview into an official trade');
+context.serverNone={side:'none',text:'مراقبة فقط',conf:0,reasons:['server none']};
+const centralNone=vm.runInContext('centralEvaluationAdvice(serverNone,previewTrade)',context);
+assert.equal(centralNone.side,'none','the server none decision must override an actionable local preview');
+assert.equal(centralNone.entry,null);
+
 context.qualityRows = [
   { t: Date.UTC(2026,7,27,12,0), o:2400,h:2401,l:2399,c:2400.5,v:1 },
   { t: Date.UTC(2026,7,27,12,1), o:2400.5,h:2401,l:2400,c:2400.7,v:1 },

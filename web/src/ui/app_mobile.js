@@ -91,6 +91,7 @@ const mtfValEl       = $('#mtfVal');
 const signalStatusEl = $('#signalStatus');
 const signalAgeEl    = $('#signalAge');
 const signalProgressEl = $('#signalProgress');
+const telegramStatusEl = $('#telegramStatus');
 const entryValEl   = $('#entryVal');
 const tp1ValEl     = $('#tp1Val');
 const tp2ValEl     = $('#tp2Val');
@@ -378,7 +379,8 @@ function calcATR(bars, period = 14) {
 }
 
 function calcRSI(closes, period = 14) {
-  if (closes.length <= period) return [];
+  const out=Array(closes.length).fill(null);
+  if (closes.length <= period) return out;
   const gains = [];
   const losses = [];
   for (let i = 1; i < closes.length; i++) {
@@ -390,12 +392,12 @@ function calcRSI(closes, period = 14) {
     gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
   let avgLoss =
     losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  const out = Array(period).fill(null);
+  const rsiValue=()=>avgLoss===0?(avgGain===0?50:100):100-100/(1+avgGain/avgLoss);
+  out[period]=rsiValue();
   for (let i = period; i < gains.length; i++) {
     avgGain = (avgGain * (period - 1) + gains[i]) / period;
     avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
-    const rs = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-    out.push(rs);
+    out[i+1]=rsiValue();
   }
   return out;
 }
@@ -1059,7 +1061,12 @@ function restoreActiveSignal(){
   try{
     const saved=JSON.parse(localStorage.getItem(ACTIVE_SIGNAL_KEY)||'null');
     if (!validSignal(saved)) return;
-    activeSignal=saved;
+    const serverId=/^(1m|5m|15m|30m|60m|240m|1d):\d+:(buy|sell)$/.test(String(saved.id||''));
+    if (saved.origin!=='server'&&!serverId) {
+      localStorage.removeItem(ACTIVE_SIGNAL_KEY);
+      return;
+    }
+    activeSignal={...saved,origin:'server'};
     if (!isTerminalSignalStatus(activeSignal.status) && Date.now()-activeSignal.createdAt>signalExpiryMs(activeSignal.tf)) {
       activeSignal.status='expired';
       activeSignal.closedAt=Date.now();
@@ -1157,6 +1164,11 @@ function renderSignalMeta(signal){
     signalProgressEl.textContent=Number.isFinite(progress)?`${progress>=0?'+':''}${progress.toFixed(2)}R`:'—';
     signalProgressEl.style.color=Number.isFinite(progress)?(progress>=0?'var(--ok)':'var(--bad)'):'var(--muted)';
   }
+  if (telegramStatusEl) {
+    const delivery=signal?.telegram;
+    telegramStatusEl.textContent=!signal?'—':delivery?.status==='sent'?'تم الإرسال':delivery?.status==='pending'?'بانتظار الإرسال':delivery?.status==='failed'?'فشل الإرسال':'لم يُرسل بعد';
+    telegramStatusEl.style.color=delivery?.status==='sent'?'var(--ok)':delivery?.status==='failed'?'var(--bad)':delivery?.status==='pending'?'var(--accent)':'var(--muted)';
+  }
 }
 
 function updateSignalMarker(ad){
@@ -1210,7 +1222,11 @@ function renderAdvice(ad){
   }
 }
 
-function applyAdvice(ad) {
+function applyAdvice(ad,{authoritative=false,isNew=false}={}) {
+  if (authoritative) {
+    renderAdvice(ad);
+    return {ad,isNew};
+  }
   const reconciled=reconcileAdviceSignal(ad);
   renderAdvice(reconciled.ad);
   return reconciled;
@@ -1223,6 +1239,10 @@ function updateSignalLifecycle(price,ts=Date.now()){
   }
   const p=Number(price);
   activeSignal.lastPrice=p;
+  if (activeSignal.origin==='server') {
+    renderSignalMeta(activeSignal);
+    return;
+  }
   let nextStatus=activeSignal.status;
   if (Date.now()-activeSignal.createdAt>signalExpiryMs(activeSignal.tf)) nextStatus='expired';
   else if (activeSignal.side==='buy') {
@@ -1347,7 +1367,17 @@ function ensureCharts(){
       layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb'},
       timeScale:{}
     });
-    rsiSeries = rsiChart.addLineSeries({ lineWidth:1 });
+    rsiSeries = rsiChart.addLineSeries({
+      color:'#3b82f6',lineWidth:2,priceLineVisible:false,lastValueVisible:true,
+      autoscaleInfoProvider:()=>({priceRange:{minValue:0,maxValue:100}})
+    });
+    [
+      {price:70,color:'#ef4444',title:'70'},
+      {price:50,color:'#64748b',title:'50'},
+      {price:30,color:'#22c55e',title:'30'}
+    ].forEach(level=>rsiSeries.createPriceLine({
+      ...level,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true
+    }));
   }
 
   const macdP = $('#macdPanel');
@@ -1379,7 +1409,17 @@ function ensureCharts(){
       layout:{ background:{type:'solid', color:getComputedStyle(document.documentElement).getPropertyValue('--card2').trim()||'#0b0f17'}, textColor:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#e5e7eb'},
       timeScale:{}
     });
-    stochSeries = stochChart.addLineSeries({ lineWidth:1 });
+    stochSeries = stochChart.addLineSeries({
+      color:'#3b82f6',lineWidth:2,priceLineVisible:false,lastValueVisible:true,
+      autoscaleInfoProvider:()=>({priceRange:{minValue:0,maxValue:100}})
+    });
+    [
+      {price:80,color:'#ef4444',title:'80'},
+      {price:50,color:'#64748b',title:'50'},
+      {price:20,color:'#22c55e',title:'20'}
+    ].forEach(level=>stochSeries.createPriceLine({
+      ...level,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true
+    }));
   }
 
   window.addEventListener('resize', resizeChartsToContainers);
@@ -1496,7 +1536,8 @@ function setBarsOnCharts(bars){
 
   const rsiArr = calcRSI(closes, +(rsiPeriodEl?.value||14));
   if (rsiSeries){
-    const d = bars.map((b,i)=>({ time:Math.floor(b.t/1000), value:rsiArr[i]??50 }));
+    const d = bars.map((b,i)=>({time:Math.floor(b.t/1000),value:rsiArr[i]}))
+      .filter(point=>Number.isFinite(point.value));
     rsiSeries.setData(d);
     rsiChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, d.length - 100), to: d.length + 5 });
   }
@@ -1514,7 +1555,8 @@ function setBarsOnCharts(bars){
 
   const stArr = calcStoch(closes, bars.map(b=>b.h), bars.map(b=>b.l), +(stochKEl?.value||14));
   if (stochSeries){
-    const d = bars.map((b,i)=>({ time:Math.floor(b.t/1000), value:stArr[i]??50 }));
+    const d = bars.map((b,i)=>({time:Math.floor(b.t/1000),value:stArr[i]}))
+      .filter(point=>Number.isFinite(point.value));
     stochSeries.setData(d);
     stochChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, d.length - 100), to: d.length + 5 });
   }
@@ -1810,16 +1852,37 @@ async function fetchBarsFrame(base,tf,limit) {
   return {tf,bars,source,storage,quality,storedGapCount:Number.isFinite(storedGapCount)?storedGapCount:null};
 }
 
-async function fetchCentralSignal(base,tf) {
+async function fetchCentralDecision(base,tf) {
   try {
     const response=await fetch(`${base}/signals?tf=${encodeURIComponent(tf)}`,{cache:'no-store'});
-    if (!response.ok) return null;
+    if (!response.ok) return {reachable:false,state:null,evaluation:null};
     const payload=await response.json();
-    const state=payload?.signals?.[0]?.state;
-    return validSignal(state)?state:null;
+    const row=payload?.signals?.[0]||{};
+    return {
+      reachable:Boolean(payload?.ok),
+      state:validSignal(row.state)?row.state:null,
+      evaluation:row.evaluation&&typeof row.evaluation==='object'?row.evaluation:null,
+      updatedAt:Number(payload?.updatedAt||0),refreshing:Boolean(payload?.refreshing)
+    };
   } catch {
-    return null;
+    return {reachable:false,state:null,evaluation:null};
   }
+}
+
+function centralEvaluationAdvice(evaluation,localPreview){
+  if (!evaluation) return {
+    side:'none',text:'مراقبة فقط — بانتظار تقييم الخادم',conf:0,
+    entry:null,tp1:null,tp2:null,sl:null,reasons:['لم يصل تقييم مركزي حديث بعد']
+  };
+  if (['buy','sell'].includes(evaluation.side)) return {
+    ...evaluation,side:'none',text:'مراقبة فقط — بانتظار تثبيت الإشارة الرسمية',
+    entry:null,tp1:null,tp2:null,sl:null,
+    reasons:['الخادم رصد إعداداً أولياً لكنه لم يثبّت صفقة رسمية بعد',...(evaluation.reasons||[])]
+  };
+  return {
+    ...localPreview,...evaluation,side:'none',text:evaluation.text||'مراقبة فقط',
+    entry:null,tp1:null,tp2:null,sl:null
+  };
 }
 
 async function fetchBarsAndUpdate(){
@@ -1831,7 +1894,7 @@ async function fetchBarsAndUpdate(){
   const L = Math.max(300, Math.min(+(limitIn?.value || 1200), 5000));
 
   try{
-    const centralSignalPromise=fetchCentralSignal(base,tf);
+    const centralDecisionPromise=fetchCentralDecision(base,tf);
     const higher=HIGHER_TF[tf]||[];
     const refreshMtf=tf!==lastAnalysisTf || !lastMtfBars.length || Date.now()-lastMtfFetchAt>=60000;
     const settled=await Promise.allSettled([
@@ -1877,13 +1940,31 @@ async function fetchBarsAndUpdate(){
       enforceMTF:true,
       enforceFresh:true
     });
-    const centralSignal=await centralSignalPromise;
-    if (centralSignal&&(!isTerminalSignalStatus(centralSignal.status)||activeSignal?.id===centralSignal.id)) {
-      activeSignal={...centralSignal};
+    const central=await centralDecisionPromise;
+    let isNew=false;
+    if (central.reachable&&central.state) {
+      const previousId=activeSignal?.id;
+      activeSignal={...central.state,origin:'server'};
       persistActiveSignal();
       advice=signalAsAdvice(activeSignal);
+      isNew=Boolean(!isTerminalSignalStatus(activeSignal.status)&&previousId!==activeSignal.id);
+    } else if (central.reachable) {
+      activeSignal=null;
+      persistActiveSignal();
+      advice=centralEvaluationAdvice(central.evaluation,advice);
+    } else if (activeSignal?.origin==='server'&&validSignal(activeSignal)) {
+      advice=signalAsAdvice(activeSignal);
+      advice.reasons=['تعذّر تحديث حالة الخادم مؤقتاً؛ المعروض آخر إشارة رسمية محفوظة',...(advice.reasons||[])];
+    } else {
+      activeSignal=null;
+      persistActiveSignal();
+      advice={
+        ...advice,side:'none',text:'مراقبة فقط — تعذّر تأكيد الخادم',
+        entry:null,tp1:null,tp2:null,sl:null,
+        reasons:['لا تصدر صفقة محلية عند انقطاع الخادم',...(advice.reasons||[])]
+      };
     }
-    const applied=applyAdvice(advice);
+    const applied=applyAdvice(advice,{authoritative:true,isNew});
 
     refreshFeedStatus();
 
@@ -1906,7 +1987,7 @@ async function fetchBarsAndUpdate(){
     lastBarsSource='';
     lastBarsStorage='';
     lastBarsQuality={ok:false,gaps:0,duplicates:0,reason:'تعذّر فحص الشموع'};
-    applyAdvice({ side:'none', text:'مراقبة فقط', conf:0, entry:null,tp1:null,tp2:null,sl:null, reasons:[] });
+    applyAdvice({side:'none',text:'مراقبة فقط — تعذّر تحديث البيانات',conf:0,entry:null,tp1:null,tp2:null,sl:null,reasons:['لم تُنشأ أي إشارة محلية']},{authoritative:true});
   }finally{
     barsRequestRunning = false;
   }
@@ -1942,28 +2023,17 @@ async function sendAdviceToTelegram(){
     logDebug('لا توجد إشارة فعلية لإرسالها إلى تيليغرام');
     return;
   }
-  const ad=signalAsAdvice(activeSignal);
   const base = getBase();
-  const text = [
-    'إشارة GoldSignalsX',
-    `النوع: ${ad.side==='buy'?'شراء':ad.side==='sell'?'بيع':'مراقبة'}`,
-    ad.entry ? `Entry: ${ad.entry.toFixed(2)}` : '',
-    ad.tp1   ? `TP1: ${ad.tp1.toFixed(2)}` : '',
-    ad.tp2   ? `TP2: ${ad.tp2.toFixed(2)}` : '',
-    ad.sl    ? `SL: ${ad.sl.toFixed(2)}` : '',
-    ad.conf  ? `درجة النظام: ${ad.conf.toFixed(0)}/100` : '',
-    ad.status ? `الحالة: ${signalStatusText(activeSignal)}` : '',
-    ad.pattern ? `نمط: ${ad.pattern}` : ''
-  ].filter(Boolean).join('\n');
-
   try{
     const r = await fetch(`${base}/notify`, {
       method:'POST',
       headers:{'content-type':'application/json'},
-      body: JSON.stringify({ text })
+      body:JSON.stringify({tf:activeSignal.tf,signalId:activeSignal.id})
     });
     const j = await r.json().catch(()=>({}));
-    logDebug(`Telegram: ${r.ok?'OK':'FAIL'} ${JSON.stringify(j)}`);
+    if (j.delivery) activeSignal.telegram=j.delivery;
+    renderSignalMeta(activeSignal);
+    logDebug(`Telegram: ${r.ok?'تم الإرسال':`فشل (${j.error||'غير معروف'})`}`);
   }catch(e){
     logDebug(`Telegram error: ${e.message}`);
   }
