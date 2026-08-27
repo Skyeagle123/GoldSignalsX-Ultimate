@@ -66,8 +66,12 @@
       container.rel = 'noopener noreferrer';
     }
 
-    container.appendChild(textElement('div', String(item?.title || 'خبر بلا عنوان')));
-    if (item?.reason) container.appendChild(textElement('div', String(item.reason), 'small'));
+    const originalTitle = String(item?.title || 'خبر بلا عنوان');
+    const arabicTitle = String(item?.titleAr || '').trim();
+    container.appendChild(textElement('div', arabicTitle || originalTitle, 'news-title'));
+    if (arabicTitle) container.appendChild(textElement('div', originalTitle, 'news-original'));
+    const arabicSummary = String(item?.summaryAr || item?.reason || '').trim();
+    if (arabicSummary) container.appendChild(textElement('div', arabicSummary, 'small news-summary-ar'));
     const meta = document.createElement('div');
     meta.className = 'news-meta';
     meta.appendChild(textElement('span', importance.text));
@@ -91,7 +95,7 @@
     if (!toast || !title || !message) return;
     const direction = directionMeta(critical.direction);
     title.textContent = 'خبر مهم للذهب';
-    message.textContent = `${direction.text}: ${critical.title}`;
+    message.textContent = `${direction.text}: ${critical.titleAr || critical.title}`;
     toast.classList.add('show');
     setTimeout(() => toast.classList.remove('show'), 12000);
   }
