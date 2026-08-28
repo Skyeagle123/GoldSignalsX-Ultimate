@@ -1216,9 +1216,9 @@ function renderAdvice(ad){
   updateSignalMarker(ad);
   renderSignalMeta(activeSignal);
   if (btnNotify) {
-    const canNotify=Boolean(activeSignal && !isTerminalSignalStatus(activeSignal.status));
-    btnNotify.disabled=!canNotify;
-    btnNotify.title=canNotify?'إرسال الإشارة الحالية':'لا توجد إشارة فعلية قابلة للإرسال';
+    const hasSignal=Boolean(activeSignal);
+    btnNotify.disabled=!hasSignal;
+    btnNotify.title=hasSignal?'عرض حالة الإرسال التلقائي':'لا توجد إشارة فعلية';
   }
 }
 
@@ -2016,27 +2016,16 @@ if (toastCloseEl){
   toastCloseEl.addEventListener('click', ()=> toastEl.classList.remove('show'));
 }
 
-// ===== Telegram Notify =====
-async function sendAdviceToTelegram(){
-  if (!lastBars || !lastBars.length) return;
-  if (!activeSignal || isTerminalSignalStatus(activeSignal.status)) {
-    logDebug('لا توجد إشارة فعلية لإرسالها إلى تيليغرام');
+// ===== Telegram automatic delivery status =====
+function sendAdviceToTelegram(){
+  if (!activeSignal) {
+    logDebug('لا توجد إشارة فعلية لعرض حالة تيليغرام');
     return;
   }
-  const base = getBase();
-  try{
-    const r = await fetch(`${base}/notify`, {
-      method:'POST',
-      headers:{'content-type':'application/json'},
-      body:JSON.stringify({tf:activeSignal.tf,signalId:activeSignal.id})
-    });
-    const j = await r.json().catch(()=>({}));
-    if (j.delivery) activeSignal.telegram=j.delivery;
-    renderSignalMeta(activeSignal);
-    logDebug(`Telegram: ${r.ok?'تم الإرسال':`فشل (${j.error||'غير معروف'})`}`);
-  }catch(e){
-    logDebug(`Telegram error: ${e.message}`);
-  }
+  const status=String(activeSignal.telegram?.status||'pending');
+  const labels={sent:'تم الإرسال تلقائياً',pending:'بانتظار الإرسال التلقائي',failed:'تعذّر الإرسال وسيُعاد تلقائياً'};
+  renderSignalMeta(activeSignal);
+  logDebug(`Telegram: ${labels[status]||status}`);
 }
 
 // ===== Backtest واقعي =====
