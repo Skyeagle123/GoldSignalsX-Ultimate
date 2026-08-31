@@ -1852,9 +1852,33 @@ async function fetchBarsFrame(base,tf,limit) {
   return {tf,bars,source,storage,quality,storedGapCount:Number.isFinite(storedGapCount)?storedGapCount:null};
 }
 
+function currentServerSignalFilters(){
+  const pivotDistance=Number(pivotDistanceEl?.value);
+  return {
+    nyFilterOn:nyFilterOnEl?.checked!==false,
+    nyStart:nyStartEl?.value||'08:00',
+    nyEnd:nyEndEl?.value||'17:00',
+    pivotFilterOn:pivotFilterOnEl?.checked!==false,
+    pivotDistance:Number.isFinite(pivotDistance)?Math.max(0,Math.min(50,pivotDistance)):0.7
+  };
+}
+
+function centralSignalsUrl(base,tf){
+  const filters=currentServerSignalFilters();
+  const params=new URLSearchParams({
+    tf,
+    nyFilterOn:filters.nyFilterOn?'1':'0',
+    nyStart:filters.nyStart,
+    nyEnd:filters.nyEnd,
+    pivotFilterOn:filters.pivotFilterOn?'1':'0',
+    pivotDistance:String(filters.pivotDistance)
+  });
+  return `${base}/signals?${params}`;
+}
+
 async function fetchCentralDecision(base,tf) {
   try {
-    const response=await fetch(`${base}/signals?tf=${encodeURIComponent(tf)}`,{cache:'no-store'});
+    const response=await fetch(centralSignalsUrl(base,tf),{cache:'no-store'});
     if (!response.ok) return {reachable:false,state:null,evaluation:null};
     const payload=await response.json();
     const row=payload?.signals?.[0]||{};
@@ -2447,6 +2471,9 @@ function setupUI(){
   savedFields.filter(Boolean).forEach(el=>el.addEventListener('change',()=>{
     saveSignalSettings();
     recalculateCurrentAdvice();
+    if ([nyFilterOnEl,nyStartEl,nyEndEl,pivotFilterOnEl,pivotDistanceEl].includes(el)) {
+      fetchBarsAndUpdate();
+    }
   }));
 }
 

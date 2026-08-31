@@ -4,22 +4,51 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('./web/src/ui/app_mobile.js', import.meta.url), 'utf8');
 const store = new Map();
+const controls = new Map([
+  ['#nyFilterOn',{checked:true}],
+  ['#nyStart',{value:'08:00'}],
+  ['#nyEnd',{value:'17:00'}],
+  ['#pivotFilterOn',{checked:true}],
+  ['#pivotDistance',{value:'0.70'}]
+]);
 const windowMock = { addEventListener: () => {}, dispatchEvent: () => {}, GSXNewsState: null };
 const context = vm.createContext({
   console, Date, Math, Number, Array, Object, String, JSON, Promise,
   window: windowMock,
-  document: { querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {}, hidden: false },
+  document: { querySelector: selector => controls.get(selector)||null, querySelectorAll: () => [], addEventListener: () => {}, hidden: false },
   localStorage: {
     getItem: key => store.has(key) ? store.get(key) : null,
     setItem: (key, value) => store.set(key, String(value)),
     removeItem: key => store.delete(key)
   },
-  location: { href: '' },
+  location: { href: '' }, URLSearchParams,
   setInterval: () => 0,
   setTimeout: () => 0,
   fetch: async () => { throw new Error('fetch not expected'); }
 });
 vm.runInContext(source, context);
+
+let requestedSignalsUrl='';
+context.fetch=async url=>{
+  requestedSignalsUrl=String(url);
+  return {ok:true,json:async()=>({ok:true,signals:[]})};
+};
+await vm.runInContext("fetchCentralDecision('https://worker.example','5m')",context);
+let requestedParams=new URL(requestedSignalsUrl).searchParams;
+assert.equal(requestedParams.get('nyFilterOn'),'1');
+assert.equal(requestedParams.get('nyStart'),'08:00');
+assert.equal(requestedParams.get('nyEnd'),'17:00');
+assert.equal(requestedParams.get('pivotFilterOn'),'1');
+assert.equal(requestedParams.get('pivotDistance'),'0.7');
+
+controls.get('#nyFilterOn').checked=false;
+controls.get('#pivotFilterOn').checked=false;
+controls.get('#pivotDistance').value='1.25';
+await vm.runInContext("fetchCentralDecision('https://worker.example','1m')",context);
+requestedParams=new URL(requestedSignalsUrl).searchParams;
+assert.equal(requestedParams.get('nyFilterOn'),'0');
+assert.equal(requestedParams.get('pivotFilterOn'),'0');
+assert.equal(requestedParams.get('pivotDistance'),'1.25');
 
 function makeTrend(direction, count = 120, stepMs = 60000) {
   const rows = [];
