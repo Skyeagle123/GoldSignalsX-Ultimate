@@ -89,6 +89,7 @@ const bullScoreValEl = $('#bullScoreVal');
 const bearScoreValEl = $('#bearScoreVal');
 const mtfValEl       = $('#mtfVal');
 const signalStatusEl = $('#signalStatus');
+const signalTimeframeEl = $('#signalTimeframe');
 const signalAgeEl    = $('#signalAge');
 const signalProgressEl = $('#signalProgress');
 const telegramStatusEl = $('#telegramStatus');
@@ -1107,6 +1108,15 @@ function signalStatusText(signal){
   return `${side} فعّال`;
 }
 
+function signalTimeframeText(tf){
+  const value=String(tf||'');
+  const labels={
+    '1m':'دقيقة','5m':'5 دقائق','15m':'15 دقيقة','30m':'30 دقيقة',
+    '60m':'ساعة','240m':'4 ساعات','1d':'يوم'
+  };
+  return value?`${value}${labels[value]?` — ${labels[value]}`:''}`:'—';
+}
+
 function signalAsAdvice(signal){
   if (!signal) return null;
   return {
@@ -1158,6 +1168,7 @@ function renderSignalMeta(signal){
     signalStatusEl.textContent=signalStatusText(signal);
     signalStatusEl.style.color=!signal?'var(--muted)':signal.status==='stopped'?'var(--bad)':isTerminalSignalStatus(signal.status)?'var(--accent)':'var(--ok)';
   }
+  if (signalTimeframeEl) signalTimeframeEl.textContent=signal?signalTimeframeText(signal.tf):'—';
   if (signalAgeEl) signalAgeEl.textContent=signal?formatAge(Date.now()-signal.createdAt):'—';
   if (signalProgressEl) {
     const progress=signalProgressR(signal,Number(signal?.lastPrice));

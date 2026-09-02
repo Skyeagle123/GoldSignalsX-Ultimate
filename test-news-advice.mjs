@@ -9,7 +9,8 @@ const controls = new Map([
   ['#nyStart',{value:'08:00'}],
   ['#nyEnd',{value:'17:00'}],
   ['#pivotFilterOn',{checked:true}],
-  ['#pivotDistance',{value:'0.70'}]
+  ['#pivotDistance',{value:'0.70'}],
+  ['#signalTimeframe',{textContent:''}]
 ]);
 const windowMock = { addEventListener: () => {}, dispatchEvent: () => {}, GSXNewsState: null };
 const context = vm.createContext({
@@ -147,6 +148,24 @@ context.serverNone={side:'none',text:'مراقبة فقط',conf:0,reasons:['serv
 const centralNone=vm.runInContext('centralEvaluationAdvice(serverNone,previewTrade)',context);
 assert.equal(centralNone.side,'none','the server none decision must override an actionable local preview');
 assert.equal(centralNone.entry,null);
+
+const timeframeLabels={
+  '1m':'1m — دقيقة','5m':'5m — 5 دقائق','15m':'15m — 15 دقيقة',
+  '30m':'30m — 30 دقيقة','60m':'60m — ساعة','240m':'240m — 4 ساعات'
+};
+for (const [tf,label] of Object.entries(timeframeLabels)) {
+  for (const status of ['active','tp1','tp2','stopped','expired']) {
+    context.timeframeSignal={
+      tf,status,side:'sell',entry:100,tp1:99,tp2:98,sl:101,
+      createdAt:Date.now(),lastPrice:100
+    };
+    vm.runInContext('renderSignalMeta(timeframeSignal)',context);
+    assert.equal(
+      controls.get('#signalTimeframe').textContent,label,
+      `${tf} must remain visible when the official signal status is ${status}`
+    );
+  }
+}
 
 context.qualityRows = [
   { t: Date.UTC(2026,7,27,12,0), o:2400,h:2401,l:2399,c:2400.5,v:1 },
