@@ -10,7 +10,10 @@ const controls = new Map([
   ['#nyEnd',{value:'17:00'}],
   ['#pivotFilterOn',{checked:true}],
   ['#pivotDistance',{value:'0.70'}],
-  ['#signalTimeframe',{textContent:''}]
+  ['#signalTimeframe',{textContent:''}],
+  ['#adviceText',{textContent:''}],
+  ['#mtfVal',{textContent:''}],
+  ['#mtfLaterVal',{textContent:''}]
 ]);
 const windowMock = { addEventListener: () => {}, dispatchEvent: () => {}, GSXNewsState: null };
 const context = vm.createContext({
@@ -165,6 +168,36 @@ for (const [tf,label] of Object.entries(timeframeLabels)) {
       `${tf} must remain visible when the official signal status is ${status}`
     );
   }
+}
+
+context.mtfDisplaySignal={
+  id:'5m:primary:sell',tf:'5m',status:'active',side:'sell',
+  entry:100,tp1:99,tp2:98,sl:101,conf:88,createdAt:Date.now(),lastPrice:100,
+  mtf:{bull:0,bear:2,neutral:0},
+  mtfAtEntry:{
+    capturedAt:Date.now(),primaryTf:'5m',relatedTimeframes:['15m','60m'],
+    summary:{bull:0,bear:2,neutral:0}
+  },
+  mtfConfirmations:[
+    {type:'later-confirmation',confirmationSignalId:'1m:later:sell',primarySignalId:'5m:primary:sell',tf:'1m',side:'sell',confirmedAt:Date.now()}
+  ]
+};
+context.fetch=async()=>({
+  ok:true,
+  json:async()=>({ok:true,signals:[{tf:'5m',state:context.mtfDisplaySignal,evaluation:null}]})
+});
+const centralMtf=await vm.runInContext("fetchCentralDecision('https://worker.example','5m')",context);
+assert.equal(centralMtf.state.id,'5m:primary:sell');
+assert.equal(centralMtf.state.mtfConfirmations[0].primarySignalId,centralMtf.state.id);
+context.mtfDisplaySignal=centralMtf.state;
+for (const status of ['active','tp1','tp2','stopped','expired']) {
+  context.mtfDisplaySignal.status=status;
+  vm.runInContext('activeSignal=mtfDisplaySignal; renderAdvice(signalAsAdvice(mtfDisplaySignal))',context);
+  assert.equal(controls.get('#mtfVal').textContent,'↑0 / ↓2 / —0 • 15m, 60m');
+  assert.equal(
+    controls.get('#mtfLaterVal').textContent,'↑0 / ↓1 / —0 • 1m',
+    `the linked 1m confirmation must remain visible when the primary status is ${status}`
+  );
 }
 
 context.qualityRows = [

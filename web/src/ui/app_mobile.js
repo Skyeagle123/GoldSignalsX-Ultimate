@@ -88,6 +88,7 @@ const confValEl    = $('#confVal');
 const bullScoreValEl = $('#bullScoreVal');
 const bearScoreValEl = $('#bearScoreVal');
 const mtfValEl       = $('#mtfVal');
+const mtfLaterValEl  = $('#mtfLaterVal');
 const signalStatusEl = $('#signalStatus');
 const signalTimeframeEl = $('#signalTimeframe');
 const signalAgeEl    = $('#signalAge');
@@ -1126,9 +1127,28 @@ function signalAsAdvice(signal){
     entry:signal.entry,tp1:signal.tp1,tp2:signal.tp2,sl:signal.sl,
     reasons:signal.reasons,pattern:signal.pattern,
     bullScore:signal.bullScore,bearScore:signal.bearScore,mtf:signal.mtf,
+    mtfAtEntry:signal.mtfAtEntry,mtfConfirmations:signal.mtfConfirmations,
     tf:signal.tf,signalBarTs:signal.signalBarTs,status:signal.status,
     createdAt:signal.createdAt,lastPrice:signal.lastPrice
   };
+}
+
+function formatMtfSummary(summary,timeframes=[]){
+  const value=summary||{};
+  const counts=`↑${Number(value.bull)||0} / ↓${Number(value.bear)||0} / —${Number(value.neutral)||0}`;
+  const frames=Array.from(new Set((Array.isArray(timeframes)?timeframes:[]).map(tf=>String(tf||'')).filter(Boolean)));
+  return frames.length?`${counts} • ${frames.join(', ')}`:counts;
+}
+
+function summarizeLaterMtfConfirmations(confirmations){
+  const rows=Array.isArray(confirmations)?confirmations:[];
+  const summary={bull:0,bear:0,neutral:0};
+  for (const row of rows) {
+    if (row?.side==='buy') summary.bull++;
+    else if (row?.side==='sell') summary.bear++;
+    else summary.neutral++;
+  }
+  return {summary,timeframes:rows.map(row=>row?.tf).filter(Boolean)};
 }
 
 function reconcileAdviceSignal(ad){
@@ -1207,8 +1227,14 @@ function renderAdvice(ad){
   if (bullScoreValEl) bullScoreValEl.textContent=Number.isFinite(ad.bullScore)?ad.bullScore.toFixed(1):'—';
   if (bearScoreValEl) bearScoreValEl.textContent=Number.isFinite(ad.bearScore)?ad.bearScore.toFixed(1):'—';
   if (mtfValEl) {
-    const mtf=ad.mtf||{};
-    mtfValEl.textContent=`↑${mtf.bull||0} / ↓${mtf.bear||0} / —${mtf.neutral||0}`;
+    const snapshot=ad.mtfAtEntry||null;
+    mtfValEl.textContent=formatMtfSummary(
+      snapshot?.summary||ad.mtf||{},snapshot?.relatedTimeframes||[]
+    );
+  }
+  if (mtfLaterValEl) {
+    const later=summarizeLaterMtfConfirmations(ad.mtfConfirmations);
+    mtfLaterValEl.textContent=formatMtfSummary(later.summary,later.timeframes);
   }
   if (entryValEl) entryValEl.textContent = ad.entry ? ad.entry.toFixed(2) : '—';
   if (tp1ValEl)   tp1ValEl.textContent   = ad.tp1 ? ad.tp1.toFixed(2)     : '—';
