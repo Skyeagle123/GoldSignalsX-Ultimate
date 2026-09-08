@@ -94,6 +94,8 @@ const signalTimeframeEl = $('#signalTimeframe');
 const signalAgeEl    = $('#signalAge');
 const signalProgressEl = $('#signalProgress');
 const telegramStatusEl = $('#telegramStatus');
+const signalNewsRiskEl = $('#signalNewsRisk');
+const signalNewsRiskDetailsEl = $('#signalNewsRiskDetails');
 const entryValEl   = $('#entryVal');
 const tp1ValEl     = $('#tp1Val');
 const tp2ValEl     = $('#tp2Val');
@@ -161,6 +163,7 @@ let lastMtfBars = []; // [{ tf, bars, source }]
 let lastMtfFetchAt = 0;
 let lastAdvice = null;
 let activeSignal = null;
+let activeExposureSnapshot = null;
 let chart, candleSeries, mainChartWrap;
 let bbUpperSeries, bbMiddleSeries, bbLowerSeries;
 let livePriceLine = null;
@@ -1129,7 +1132,8 @@ function signalAsAdvice(signal){
     bullScore:signal.bullScore,bearScore:signal.bearScore,mtf:signal.mtf,
     mtfAtEntry:signal.mtfAtEntry,mtfConfirmations:signal.mtfConfirmations,
     tf:signal.tf,signalBarTs:signal.signalBarTs,status:signal.status,
-    createdAt:signal.createdAt,lastPrice:signal.lastPrice
+    createdAt:signal.createdAt,lastPrice:signal.lastPrice,
+    newsRiskActive:Boolean(signal.newsRiskActive),newsRisk:signal.newsRisk||null
   };
 }
 
@@ -1183,6 +1187,42 @@ function signalProgressR(signal,price){
   return signal.side==='buy'?(price-signal.entry)/risk:(signal.entry-price)/risk;
 }
 
+function formatNewsRiskTime(value){
+  const timestamp=Number(value);
+  if (!Number.isFinite(timestamp)) return '—';
+  return new Date(timestamp).toLocaleString('ar-LB',{
+    timeZone:'UTC',year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',hour12:false
+  });
+}
+
+function renderSignalNewsRisk(signal){
+  if (!signalNewsRiskEl&&!signalNewsRiskDetailsEl) return;
+  const exposureRisk=activeExposureSnapshot?.newsRisk||null;
+  const signalRisk=signal?.newsRisk||null;
+  const risk=activeExposureSnapshot?.newsRiskActive?exposureRisk:(signalRisk||exposureRisk);
+  const active=Boolean(risk&&(
+    signal?.newsRiskActive||activeExposureSnapshot?.newsRiskActive
+  ));
+  const ended=Boolean(!active&&risk?.status==='ended');
+  const level=String(risk?.level||'high').toUpperCase();
+  if (signalNewsRiskEl) {
+    signalNewsRiskEl.textContent=active?`نشط • ${level}`:ended?'انتهت النافذة':'غير نشط';
+    signalNewsRiskEl.style.color=active?'var(--bad)':ended?'var(--accent)':'var(--muted)';
+  }
+  if (!signalNewsRiskDetailsEl) return;
+  signalNewsRiskDetailsEl.className=`signal-news-risk${active?' active':ended?' ended':''}`;
+  if (!active&&!ended) {
+    signalNewsRiskDetailsEl.textContent='';
+    return;
+  }
+  const names=(Array.isArray(risk.events)?risk.events:[])
+    .map(event=>event?.name).filter(Boolean).join(' / ')||'خبر اقتصادي مهم';
+  signalNewsRiskDetailsEl.textContent=active
+    ? `⚠️ News Risk على الـActive Exposure — ${names} — الخطورة: ${level} — نافذة UTC: ${formatNewsRiskTime(risk.windowStartAt)} إلى ${formatNewsRiskTime(risk.windowEndAt)}. الإشارة وEntry/TP/SL كما هي.`
+    : `انتهت نافذة News Risk للـActive Exposure — ${names} — عند ${formatNewsRiskTime(risk.endedAt||risk.windowEndAt)} UTC.`;
+}
+
 function renderSignalMeta(signal){
   if (signalStatusEl) {
     signalStatusEl.textContent=signalStatusText(signal);
@@ -1200,6 +1240,7 @@ function renderSignalMeta(signal){
     telegramStatusEl.textContent=!signal?'—':delivery?.status==='sent'?'تم الإرسال':delivery?.status==='pending'?'بانتظار الإرسال':delivery?.status==='failed'?'فشل الإرسال':'لم يُرسل بعد';
     telegramStatusEl.style.color=delivery?.status==='sent'?'var(--ok)':delivery?.status==='failed'?'var(--bad)':delivery?.status==='pending'?'var(--accent)':'var(--muted)';
   }
+  renderSignalNewsRisk(signal);
 }
 
 function updateSignalMarker(ad){
@@ -1916,17 +1957,18 @@ function centralSignalsUrl(base,tf){
 async function fetchCentralDecision(base,tf) {
   try {
     const response=await fetch(centralSignalsUrl(base,tf),{cache:'no-store'});
-    if (!response.ok) return {reachable:false,state:null,evaluation:null};
+    if (!response.ok) return {reachable:false,state:null,evaluation:null,exposure:null};
     const payload=await response.json();
     const row=payload?.signals?.[0]||{};
     return {
       reachable:Boolean(payload?.ok),
       state:validSignal(row.state)?row.state:null,
       evaluation:row.evaluation&&typeof row.evaluation==='object'?row.evaluation:null,
+      exposure:payload?.exposure&&typeof payload.exposure==='object'?payload.exposure:null,
       updatedAt:Number(payload?.updatedAt||0),refreshing:Boolean(payload?.refreshing)
     };
   } catch {
-    return {reachable:false,state:null,evaluation:null};
+    return {reachable:false,state:null,evaluation:null,exposure:null};
   }
 }
 
@@ -2003,6 +2045,7 @@ async function fetchBarsAndUpdate(){
     });
     const central=await centralDecisionPromise;
     let isNew=false;
+    if (central.reachable) activeExposureSnapshot=central.exposure||null;
     if (central.reachable&&central.state) {
       const previousId=activeSignal?.id;
       activeSignal={...central.state,origin:'server'};
