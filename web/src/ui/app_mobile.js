@@ -84,6 +84,8 @@ const feedSpreadEl  = $('#feedSpread');
 
 // تبويب النصيحة
 const adviceTextEl = $('#adviceText');
+const adviceKindEl = $('#adviceKind');
+const activeSignalDetailsEl = $('#activeSignalDetails');
 const confValEl    = $('#confVal');
 const bullScoreValEl = $('#bullScoreVal');
 const bearScoreValEl = $('#bearScoreVal');
@@ -124,6 +126,15 @@ const btAmbiguousEl = $('#btAmbiguous');
 const btSummaryEl = $('#btSummary');
 const btTableBody = $('#btTable tbody');
 
+// Production History / Performance
+const btnPerformanceRefresh = $('#btnPerformanceRefresh');
+const perfSignalsEl = $('#perfSignals');
+const perfWinsEl = $('#perfWins');
+const perfLossesEl = $('#perfLosses');
+const perfExpiredEl = $('#perfExpired');
+const performanceStatusEl = $('#performanceStatus');
+const performanceTableBody = $('#performanceTable tbody');
+
 // Pivot
 const pivotTableBody = $('#pivotTable tbody');
 const pivotPriceEl   = $('#pivotPrice');
@@ -163,6 +174,7 @@ let lastMtfBars = []; // [{ tf, bars, source }]
 let lastMtfFetchAt = 0;
 let lastAdvice = null;
 let activeSignal = null;
+let activeSignalEvaluation = null;
 let activeExposureSnapshot = null;
 let chart, candleSeries, mainChartWrap;
 let bbUpperSeries, bbMiddleSeries, bbLowerSeries;
@@ -1041,7 +1053,12 @@ function computeAdvice(bars, context={}){
 }
 
 function isTerminalSignalStatus(status){
-  return ['tp2','stopped','expired','cancelled'].includes(status);
+  return ['tp2','sl','stopped','expired','closed','cancelled'].includes(status);
+}
+
+function isActiveOfficialSignal(signal){
+  if (!validSignal(signal)||!['active','tp1'].includes(String(signal.status||''))) return false;
+  return signal.origin==='server'||/^(1m|5m|15m|30m|60m|240m|1d):\d+:(buy|sell)$/.test(String(signal.id||''));
 }
 
 function signalExpiryMs(tf){
@@ -1068,6 +1085,10 @@ function restoreActiveSignal(){
     if (!validSignal(saved)) return;
     const serverId=/^(1m|5m|15m|30m|60m|240m|1d):\d+:(buy|sell)$/.test(String(saved.id||''));
     if (saved.origin!=='server'&&!serverId) {
+      localStorage.removeItem(ACTIVE_SIGNAL_KEY);
+      return;
+    }
+    if (isTerminalSignalStatus(saved.status)) {
       localStorage.removeItem(ACTIVE_SIGNAL_KEY);
       return;
     }
@@ -1106,8 +1127,9 @@ function signalStatusText(signal){
   const side=signal.side==='buy'?'شراء':'بيع';
   if (signal.status==='tp1') return `${side} فعّال • تحقق TP1`;
   if (signal.status==='tp2') return `${side} مكتمل • تحقق TP2`;
-  if (signal.status==='stopped') return `${side} منتهٍ • SL`;
+  if (signal.status==='sl'||signal.status==='stopped') return `${side} منتهٍ • SL`;
   if (signal.status==='expired') return `${side} منتهي الصلاحية`;
+  if (signal.status==='closed') return `${side} مغلق`;
   if (signal.status==='cancelled') return `${side} مُلغى`;
   return `${side} فعّال`;
 }
@@ -1121,15 +1143,26 @@ function signalTimeframeText(tf){
   return value?`${value}${labels[value]?` — ${labels[value]}`:''}`:'—';
 }
 
-function signalAsAdvice(signal){
+function signalEntryDirectionScores(signal,evaluation){
+  const sameCycle=Number(evaluation?.evaluatedAt)===Number(signal?.createdAt);
+  const bull=Number(evaluation?.bull),bear=Number(evaluation?.bear);
+  if (!sameCycle||!Number.isFinite(bull)||!Number.isFinite(bear)) {
+    return {bullScore:null,bearScore:null,available:false};
+  }
+  return {bullScore:bull,bearScore:bear,available:true};
+}
+
+function signalAsAdvice(signal,evaluation=null){
   if (!signal) return null;
+  const entryScores=signalEntryDirectionScores(signal,evaluation);
   return {
     side:signal.side,
     text:signalStatusText(signal),
     conf:signal.conf,
     entry:signal.entry,tp1:signal.tp1,tp2:signal.tp2,sl:signal.sl,
     reasons:signal.reasons,pattern:signal.pattern,
-    bullScore:signal.bullScore,bearScore:signal.bearScore,mtf:signal.mtf,
+    bullScore:entryScores.bullScore,bearScore:entryScores.bearScore,
+    entryScoresAvailable:entryScores.available,mtf:signal.mtf,
     mtfAtEntry:signal.mtfAtEntry,mtfConfirmations:signal.mtfConfirmations,
     tf:signal.tf,signalBarTs:signal.signalBarTs,status:signal.status,
     createdAt:signal.createdAt,lastPrice:signal.lastPrice,
@@ -1225,7 +1258,7 @@ function renderSignalNewsRisk(signal){
 
 function renderSignalMeta(signal){
   if (signalStatusEl) {
-    signalStatusEl.textContent=signalStatusText(signal);
+    signalStatusEl.textContent=signal?signalStatusText(signal):'لا توجد إشارة رسمية نشطة';
     signalStatusEl.style.color=!signal?'var(--muted)':signal.status==='stopped'?'var(--bad)':isTerminalSignalStatus(signal.status)?'var(--accent)':'var(--ok)';
   }
   if (signalTimeframeEl) signalTimeframeEl.textContent=signal?signalTimeframeText(signal.tf):'—';
@@ -1250,7 +1283,7 @@ function updateSignalMarker(ad){
     return;
   }
   const terminal=isTerminalSignalStatus(ad.status);
-  const statusLabel=ad.status==='tp2'?'TP2':ad.status==='stopped'?'SL':ad.status==='expired'?'EXP':ad.side==='buy'?'BUY':'SELL';
+  const statusLabel=ad.status==='tp2'?'TP2':['sl','stopped'].includes(ad.status)?'SL':ad.status==='expired'?'EXP':ad.status==='closed'?'CLOSED':ad.side==='buy'?'BUY':'SELL';
   candleSeries.setMarkers([{
     time:Math.floor(Number(ad.signalBarTs)/1000),
     position:ad.side==='buy'?'belowBar':'aboveBar',
@@ -1263,10 +1296,16 @@ function updateSignalMarker(ad){
 function renderAdvice(ad){
   lastAdvice=ad;
   if (!adviceTextEl) return;
+  const hasActiveOfficialSignal=isActiveOfficialSignal(activeSignal);
+  if (activeSignalDetailsEl) activeSignalDetailsEl.style.display=hasActiveOfficialSignal?'flex':'none';
+  if (adviceKindEl) {
+    adviceKindEl.textContent=hasActiveOfficialSignal?'Primary Trading Signal':'No active official signal';
+    adviceKindEl.style.color=hasActiveOfficialSignal?'var(--ok)':'var(--muted)';
+  }
   adviceTextEl.textContent = ad.text;
   if (confValEl)  confValEl.textContent  = ad.conf ? ad.conf.toFixed(0)+'%' : '—';
-  if (bullScoreValEl) bullScoreValEl.textContent=Number.isFinite(ad.bullScore)?ad.bullScore.toFixed(1):'—';
-  if (bearScoreValEl) bearScoreValEl.textContent=Number.isFinite(ad.bearScore)?ad.bearScore.toFixed(1):'—';
+  if (bullScoreValEl) bullScoreValEl.textContent=Number.isFinite(ad.bullScore)?ad.bullScore.toFixed(1):'غير متوفر';
+  if (bearScoreValEl) bearScoreValEl.textContent=Number.isFinite(ad.bearScore)?ad.bearScore.toFixed(1):'غير متوفر';
   if (mtfValEl) {
     const snapshot=ad.mtfAtEntry||null;
     mtfValEl.textContent=formatMtfSummary(
@@ -1294,7 +1333,7 @@ function renderAdvice(ad){
   updateSignalMarker(ad);
   renderSignalMeta(activeSignal);
   if (btnNotify) {
-    const hasSignal=Boolean(activeSignal);
+    const hasSignal=hasActiveOfficialSignal;
     btnNotify.disabled=!hasSignal;
     btnNotify.title=hasSignal?'عرض حالة الإرسال التلقائي':'لا توجد إشارة فعلية';
   }
@@ -1944,7 +1983,6 @@ function currentServerSignalFilters(){
 function centralSignalsUrl(base,tf){
   const filters=currentServerSignalFilters();
   const params=new URLSearchParams({
-    tf,
     nyFilterOn:filters.nyFilterOn?'1':'0',
     nyStart:filters.nyStart,
     nyEnd:filters.nyEnd,
@@ -1959,12 +1997,24 @@ async function fetchCentralDecision(base,tf) {
     const response=await fetch(centralSignalsUrl(base,tf),{cache:'no-store'});
     if (!response.ok) return {reachable:false,state:null,evaluation:null,exposure:null};
     const payload=await response.json();
-    const row=payload?.signals?.[0]||{};
+    const rows=Array.isArray(payload?.signals)?payload.signals:[];
+    const exposure=payload?.exposure&&typeof payload.exposure==='object'?payload.exposure:null;
+    const selectedRow=rows.find(item=>item?.tf===tf)||rows[0]||{};
+    const primaryRow=exposure?.status==='active'&&exposure.primarySignalId
+      ?rows.find(item=>item?.state?.id===exposure.primarySignalId)||selectedRow
+      :selectedRow;
+    const row=primaryRow||{};
+    const officialState=validSignal(row.state)?row.state:null;
+    const exposureMatches=!exposure||(
+      exposure.status==='active'&&officialState?.id===exposure.primarySignalId
+    );
+    const currentState=exposureMatches&&isActiveOfficialSignal(officialState)?officialState:null;
     return {
       reachable:Boolean(payload?.ok),
-      state:validSignal(row.state)?row.state:null,
+      state:currentState,
+      historicalState:officialState&&!currentState?officialState:null,
       evaluation:row.evaluation&&typeof row.evaluation==='object'?row.evaluation:null,
-      exposure:payload?.exposure&&typeof payload.exposure==='object'?payload.exposure:null,
+      exposure,
       updatedAt:Number(payload?.updatedAt||0),refreshing:Boolean(payload?.refreshing)
     };
   } catch {
@@ -1973,18 +2023,15 @@ async function fetchCentralDecision(base,tf) {
 }
 
 function centralEvaluationAdvice(evaluation,localPreview){
-  if (!evaluation) return {
-    side:'none',text:'مراقبة فقط — بانتظار تقييم الخادم',conf:0,
-    entry:null,tp1:null,tp2:null,sl:null,reasons:['لم يصل تقييم مركزي حديث بعد']
-  };
-  if (['buy','sell'].includes(evaluation.side)) return {
-    ...evaluation,side:'none',text:'مراقبة فقط — بانتظار تثبيت الإشارة الرسمية',
-    entry:null,tp1:null,tp2:null,sl:null,
-    reasons:['الخادم رصد إعداداً أولياً لكنه لم يثبّت صفقة رسمية بعد',...(evaluation.reasons||[])]
-  };
+  const reasons=['الإشارات المنتهية تبقى في Historical / Performance فقط'];
+  if (!evaluation) reasons.unshift('لم يصل تقييم مركزي حديث بعد');
+  else if (['buy','sell'].includes(evaluation.side)) {
+    reasons.unshift('الخادم رصد إعداداً أولياً لكنه لم يثبّت Primary Trading Signal');
+  } else reasons.unshift('التقييم الحالي للمراقبة فقط ولا يمثل توصية تداول');
   return {
-    ...localPreview,...evaluation,side:'none',text:evaluation.text||'مراقبة فقط',
-    entry:null,tp1:null,tp2:null,sl:null
+    ...localPreview,...evaluation,side:'none',text:'لا توجد إشارة رسمية نشطة',conf:0,
+    entry:null,tp1:null,tp2:null,sl:null,bullScore:null,bearScore:null,
+    reasons:[...reasons,...(evaluation?.reasons||[])].slice(0,8)
   };
 }
 
@@ -2049,18 +2096,21 @@ async function fetchBarsAndUpdate(){
     if (central.reachable&&central.state) {
       const previousId=activeSignal?.id;
       activeSignal={...central.state,origin:'server'};
+      activeSignalEvaluation=central.evaluation;
       persistActiveSignal();
-      advice=signalAsAdvice(activeSignal);
+      advice=signalAsAdvice(activeSignal,activeSignalEvaluation);
       isNew=Boolean(!isTerminalSignalStatus(activeSignal.status)&&previousId!==activeSignal.id);
     } else if (central.reachable) {
       activeSignal=null;
+      activeSignalEvaluation=null;
       persistActiveSignal();
       advice=centralEvaluationAdvice(central.evaluation,advice);
-    } else if (activeSignal?.origin==='server'&&validSignal(activeSignal)) {
-      advice=signalAsAdvice(activeSignal);
+    } else if (isActiveOfficialSignal(activeSignal)) {
+      advice=signalAsAdvice(activeSignal,activeSignalEvaluation);
       advice.reasons=['تعذّر تحديث حالة الخادم مؤقتاً؛ المعروض آخر إشارة رسمية محفوظة',...(advice.reasons||[])];
     } else {
       activeSignal=null;
+      activeSignalEvaluation=null;
       persistActiveSignal();
       advice={
         ...advice,side:'none',text:'مراقبة فقط — تعذّر تأكيد الخادم',
@@ -2091,7 +2141,10 @@ async function fetchBarsAndUpdate(){
     lastBarsSource='';
     lastBarsStorage='';
     lastBarsQuality={ok:false,gaps:0,duplicates:0,reason:'تعذّر فحص الشموع'};
-    applyAdvice({side:'none',text:'مراقبة فقط — تعذّر تحديث البيانات',conf:0,entry:null,tp1:null,tp2:null,sl:null,reasons:['لم تُنشأ أي إشارة محلية']},{authoritative:true});
+    const fallbackAdvice=isActiveOfficialSignal(activeSignal)
+      ?{...signalAsAdvice(activeSignal,activeSignalEvaluation),reasons:['تعذّر تحديث البيانات مؤقتًا؛ المعروض آخر Primary Signal رسمي نشط',...(activeSignal.reasons||[])]}
+      :{side:'none',text:'لا توجد إشارة رسمية نشطة',conf:0,entry:null,tp1:null,tp2:null,sl:null,reasons:['تعذّر تحديث البيانات؛ لم تُنشأ أي إشارة محلية']};
+    applyAdvice(fallbackAdvice,{authoritative:true});
   }finally{
     barsRequestRunning = false;
   }
@@ -2364,6 +2417,89 @@ function renderBacktestResults(results,failures=[]){
   }
 }
 
+function performanceRecordStatus(record){
+  const status=String(record?.finalStatus||record?.status||'');
+  if (status==='tp2') return {label:'TP2 — Win',className:'report-win'};
+  if (status==='sl'||status==='stopped') return {label:'SL — Loss',className:'report-loss'};
+  if (status==='expired') return {label:'Expired — ليس Win أو Loss',className:'report-expired'};
+  if (status==='active'||status==='tp1') return {label:'Open Primary Signal',className:''};
+  return {label:status?`Closed — ${status}`:'Historical record',className:''};
+}
+
+function performanceQualityText(quality){
+  if (!quality||quality.measurementOnly!==true) return 'غير متوفر';
+  const mfe=quality.mfe==null?NaN:Number(quality.mfe);
+  const mae=quality.mae==null?NaN:Number(quality.mae);
+  return `MFE ${Number.isFinite(mfe)?mfe.toFixed(2):'—'} • MAE ${Number.isFinite(mae)?mae.toFixed(2):'—'}`;
+}
+
+function performanceMtfAnalysisText(analysis){
+  const matrix=analysis?.matrix;
+  if (!matrix||matrix.measurementOnly!==true) return 'غير متوفر';
+  const agreement=matrix.agreementPct==null?NaN:Number(matrix.agreementPct);
+  const directional=matrix.directionalAgreementPct==null?NaN:Number(matrix.directionalAgreementPct);
+  const confirmations=Number(analysis?.laterConfirmations?.summary?.count)||0;
+  return `Agreement ${Number.isFinite(agreement)?agreement.toFixed(1)+'%':'—'} • Directional ${Number.isFinite(directional)?directional.toFixed(1)+'%':'—'} • Confirmations ${confirmations}`;
+}
+
+function performanceResultText(record){
+  if (record?.resultR==null) return '—';
+  const result=Number(record?.resultR);
+  if (!Number.isFinite(result)) return '—';
+  const value=`${result>=0?'+':''}${result.toFixed(2)}R`;
+  return record?.finalStatus==='expired'?`${value} • Expiry mark` : value;
+}
+
+function appendPerformanceCell(row,text,className=''){
+  const cell=document.createElement('td');
+  cell.textContent=String(text??'—');
+  if (className) cell.className=className;
+  row.appendChild(cell);
+}
+
+function renderPerformanceReport(payload){
+  const summary=payload?.summary||{};
+  const available=Boolean(payload?.ok);
+  if (perfSignalsEl) perfSignalsEl.textContent=available?String(Number(summary.signals)||0):'—';
+  if (perfWinsEl) perfWinsEl.textContent=available?String(Number(summary.wins)||0):'—';
+  if (perfLossesEl) perfLossesEl.textContent=available?String(Number(summary.losses)||0):'—';
+  if (perfExpiredEl) perfExpiredEl.textContent=available?String(Number(summary.expired)||0):'—';
+  const records=Array.isArray(payload?.records)?payload.records:[];
+  if (performanceTableBody) {
+    performanceTableBody.innerHTML='';
+    for (const record of records) {
+      const row=document.createElement('tr');
+      const status=performanceRecordStatus(record);
+      appendPerformanceCell(row,'Historical / Performance');
+      appendPerformanceCell(row,fmtDateTime(record.createdAt));
+      appendPerformanceCell(row,signalTimeframeText(record.timeframe));
+      appendPerformanceCell(row,record.direction==='buy'?'BUY':record.direction==='sell'?'SELL':'—');
+      appendPerformanceCell(row,status.label,status.className);
+      appendPerformanceCell(row,Number.isFinite(Number(record.entry))?Number(record.entry).toFixed(2):'—');
+      appendPerformanceCell(row,performanceResultText(record),status.className);
+      appendPerformanceCell(row,performanceQualityText(record.quality));
+      appendPerformanceCell(row,performanceMtfAnalysisText(record.mtfAnalysis));
+      performanceTableBody.appendChild(row);
+    }
+  }
+  if (performanceStatusEl) {
+    performanceStatusEl.textContent=payload?.ok
+      ?`${records.length} سجل رسمي • Expired معروض كفئة مستقلة وليس Win/Loss.`
+      :'تعذّر تحميل السجل الرسمي.';
+  }
+}
+
+async function fetchPerformanceReport(){
+  if (performanceStatusEl) performanceStatusEl.textContent='جاري تحميل السجل…';
+  try{
+    const response=await fetch(`${getBase()}/performance?limit=50`,{cache:'no-store'});
+    if (!response.ok) throw new Error('performance_unavailable');
+    renderPerformanceReport(await response.json());
+  }catch{
+    renderPerformanceReport({ok:false,summary:{},records:[]});
+  }
+}
+
 function saveSignalSettings(){
   const value=el=>el?.value;
   const checked=el=>!!el?.checked;
@@ -2405,8 +2541,11 @@ function restoreSignalSettings(){
 function recalculateCurrentAdvice(){
   if (!lastBars||!lastBars.length) return;
   analyzeMarket(lastBars,lastBars.map(b=>b.c));
-  const ad=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,barsStorage:lastBarsStorage,dataQuality:lastBarsQuality,feedIntegrityBlocked,feedIntegrityReason,news:newsContextForAdvice(),enforceMTF:true,enforceFresh:true});
-  applyAdvice(ad);
+  const preview=computeAdvice(lastBars,{tf:lastAnalysisTf,mtf:lastMtfBars,expectedMtf:(HIGHER_TF[lastAnalysisTf]||[]).length,live:lastLive,barsSource:lastBarsSource,barsStorage:lastBarsStorage,dataQuality:lastBarsQuality,feedIntegrityBlocked,feedIntegrityReason,news:newsContextForAdvice(),enforceMTF:true,enforceFresh:true});
+  const ad=isActiveOfficialSignal(activeSignal)
+    ?signalAsAdvice(activeSignal,activeSignalEvaluation)
+    :centralEvaluationAdvice(null,preview);
+  applyAdvice(ad,{authoritative:true});
   updatePivot(lastBars,lastLive?.price||lastBars.at(-1)?.c);
 }
 
@@ -2437,6 +2576,7 @@ function setupUI(){
   }
 
   if (btnBars) btnBars.addEventListener('click', fetchBarsAndUpdate);
+  if (btnPerformanceRefresh) btnPerformanceRefresh.addEventListener('click',fetchPerformanceReport);
 
   [showBBEl,showMacdEl,showRsiEl,showStochEl].filter(Boolean).forEach(el=>{
     el.addEventListener('change',()=>{
@@ -2568,6 +2708,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   ensureCharts();
   startPriceLoop();
   fetchBarsAndUpdate();
+  fetchPerformanceReport();
   // Refresh only completed candles; live movement is shown by the blue price line.
   setInterval(fetchBarsAndUpdate, 15000);
 });

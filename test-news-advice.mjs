@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('./web/src/ui/app_mobile.js', import.meta.url), 'utf8');
 const store = new Map();
+const performanceTableBody={innerHTML:'',children:[],appendChild(node){this.children.push(node);}};
 const controls = new Map([
   ['#nyFilterOn',{checked:true}],
   ['#nyStart',{value:'08:00'}],
@@ -12,14 +13,30 @@ const controls = new Map([
   ['#pivotDistance',{value:'0.70'}],
   ['#signalTimeframe',{textContent:''}],
   ['#adviceText',{textContent:''}],
+  ['#adviceKind',{textContent:'',style:{}}],
+  ['#activeSignalDetails',{style:{}}],
+  ['#bullScoreVal',{textContent:''}],
+  ['#bearScoreVal',{textContent:''}],
+  ['#signalNewsRisk',{textContent:'',style:{}}],
+  ['#signalNewsRiskDetails',{textContent:'',className:''}],
   ['#mtfVal',{textContent:''}],
-  ['#mtfLaterVal',{textContent:''}]
+  ['#mtfLaterVal',{textContent:''}],
+  ['#perfSignals',{textContent:''}],
+  ['#perfWins',{textContent:''}],
+  ['#perfLosses',{textContent:''}],
+  ['#perfExpired',{textContent:''}],
+  ['#performanceStatus',{textContent:''}],
+  ['#performanceTable tbody',performanceTableBody]
 ]);
 const windowMock = { addEventListener: () => {}, dispatchEvent: () => {}, GSXNewsState: null };
 const context = vm.createContext({
   console, Date, Math, Number, Array, Object, String, JSON, Promise,
   window: windowMock,
-  document: { querySelector: selector => controls.get(selector)||null, querySelectorAll: () => [], addEventListener: () => {}, hidden: false },
+  document: {
+    querySelector: selector => controls.get(selector)||null,
+    querySelectorAll: () => [],addEventListener: () => {},hidden: false,
+    createElement: tag=>({tagName:tag,textContent:'',className:'',children:[],appendChild(node){this.children.push(node);}})
+  },
   localStorage: {
     getItem: key => store.has(key) ? store.get(key) : null,
     setItem: (key, value) => store.set(key, String(value)),
@@ -39,6 +56,7 @@ context.fetch=async url=>{
 };
 await vm.runInContext("fetchCentralDecision('https://worker.example','5m')",context);
 let requestedParams=new URL(requestedSignalsUrl).searchParams;
+assert.equal(requestedParams.has('tf'),false,'the PWA must fetch all signal states so the active Primary remains visible across chart timeframes');
 assert.equal(requestedParams.get('nyFilterOn'),'1');
 assert.equal(requestedParams.get('nyStart'),'08:00');
 assert.equal(requestedParams.get('nyEnd'),'17:00');
@@ -170,35 +188,120 @@ for (const [tf,label] of Object.entries(timeframeLabels)) {
   }
 }
 
+const mtfCreatedAt=Date.now();
 context.mtfDisplaySignal={
-  id:'5m:primary:sell',tf:'5m',status:'active',side:'sell',
-  entry:100,tp1:99,tp2:98,sl:101,conf:88,createdAt:Date.now(),lastPrice:100,
+  id:`5m:${mtfCreatedAt}:sell`,tf:'5m',status:'active',side:'sell',origin:'server',
+  entry:100,tp1:99,tp2:98,sl:101,conf:88,createdAt:mtfCreatedAt,lastPrice:100,
   mtf:{bull:0,bear:2,neutral:0},
   mtfAtEntry:{
     capturedAt:Date.now(),primaryTf:'5m',relatedTimeframes:['15m','60m'],
     summary:{bull:0,bear:2,neutral:0}
   },
   mtfConfirmations:[
-    {type:'later-confirmation',confirmationSignalId:'1m:later:sell',primarySignalId:'5m:primary:sell',tf:'1m',side:'sell',confirmedAt:Date.now()}
+    {type:'later-confirmation',confirmationSignalId:'1m:later:sell',primarySignalId:`5m:${mtfCreatedAt}:sell`,tf:'1m',side:'sell',confirmedAt:Date.now()}
   ]
 };
+context.mtfEntryEvaluation={bull:2.4,bear:9.1,score:9.1,evaluatedAt:mtfCreatedAt};
 context.fetch=async()=>({
   ok:true,
-  json:async()=>({ok:true,signals:[{tf:'5m',state:context.mtfDisplaySignal,evaluation:null}]})
+  json:async()=>({ok:true,signals:[{tf:'5m',state:context.mtfDisplaySignal,evaluation:context.mtfEntryEvaluation}]})
 });
 const centralMtf=await vm.runInContext("fetchCentralDecision('https://worker.example','5m')",context);
-assert.equal(centralMtf.state.id,'5m:primary:sell');
+assert.equal(centralMtf.state.id,`5m:${mtfCreatedAt}:sell`);
 assert.equal(centralMtf.state.mtfConfirmations[0].primarySignalId,centralMtf.state.id);
 context.mtfDisplaySignal=centralMtf.state;
-for (const status of ['active','tp1','tp2','stopped','expired']) {
+for (const status of ['active','tp1']) {
   context.mtfDisplaySignal.status=status;
-  vm.runInContext('activeSignal=mtfDisplaySignal; renderAdvice(signalAsAdvice(mtfDisplaySignal))',context);
+  vm.runInContext('activeSignal=mtfDisplaySignal; renderAdvice(signalAsAdvice(mtfDisplaySignal,mtfEntryEvaluation))',context);
   assert.equal(controls.get('#mtfVal').textContent,'↑0 / ↓2 / —0 • 15m, 60m');
   assert.equal(
     controls.get('#mtfLaterVal').textContent,'↑0 / ↓1 / —0 • 1m',
-    `the linked 1m confirmation must remain visible when the primary status is ${status}`
+    `the linked MTF confirmation must remain separate while the primary status is ${status}`
   );
 }
+assert.equal(controls.get('#bullScoreVal').textContent,'2.4');
+assert.equal(controls.get('#bearScoreVal').textContent,'9.1');
+context.newsRiskDisplaySignal={
+  ...context.mtfDisplaySignal,newsRiskActive:true,
+  newsRisk:{
+    status:'active',level:'high',windowStartAt:mtfCreatedAt,windowEndAt:mtfCreatedAt+15*60_000,
+    events:[{name:'CPI'}]
+  }
+};
+vm.runInContext('activeSignal=newsRiskDisplaySignal; renderAdvice(signalAsAdvice(newsRiskDisplaySignal,mtfEntryEvaluation))',context);
+assert.match(controls.get('#signalNewsRiskDetails').textContent,/News Risk على الـActive Exposure/);
+assert.match(controls.get('#signalNewsRiskDetails').textContent,/الإشارة وEntry\/TP\/SL كما هي/,
+  'News Risk must remain a warning attached to the active exposure, not a Trading Signal');
+
+context.fetch=async()=>({
+  ok:true,
+  json:async()=>({
+    ok:true,
+    exposure:{status:'active',primarySignalId:context.mtfDisplaySignal.id,primaryTf:'5m'},
+    signals:[
+      {tf:'1m',state:null,evaluation:{side:'none',bull:1,bear:2,evaluatedAt:mtfCreatedAt+1}},
+      {tf:'5m',state:context.mtfDisplaySignal,evaluation:context.mtfEntryEvaluation}
+    ]
+  })
+});
+const centralAcrossTimeframes=await vm.runInContext("fetchCentralDecision('https://worker.example','1m')",context);
+assert.equal(centralAcrossTimeframes.state.id,context.mtfDisplaySignal.id,
+  'the active Primary Signal must remain Current Advice when a different chart timeframe is selected');
+context.fetch=async()=>({
+  ok:true,
+  json:async()=>({
+    ok:true,exposure:{status:'flat',primarySignalId:'',primaryTf:''},
+    signals:[{tf:'5m',state:context.mtfDisplaySignal,evaluation:context.mtfEntryEvaluation}]
+  })
+});
+const flatExposureDecision=await vm.runInContext("fetchCentralDecision('https://worker.example','5m')",context);
+assert.equal(flatExposureDecision.state,null,
+  'a stale active-looking state must not override the authoritative flat exposure');
+
+context.staleEntryEvaluation={...context.mtfEntryEvaluation,evaluatedAt:mtfCreatedAt+1};
+vm.runInContext('renderAdvice(signalAsAdvice(mtfDisplaySignal,staleEntryEvaluation))',context);
+assert.equal(controls.get('#bullScoreVal').textContent,'غير متوفر');
+assert.equal(controls.get('#bearScoreVal').textContent,'غير متوفر',
+  'direction scores must not mix a later evaluation with the at-entry signal');
+
+context.mtfDisplaySignal.status='expired';
+context.fetch=async()=>({
+  ok:true,
+  json:async()=>({ok:true,signals:[{tf:'5m',state:context.mtfDisplaySignal,evaluation:context.mtfEntryEvaluation}]})
+});
+const centralTerminal=await vm.runInContext("fetchCentralDecision('https://worker.example','5m')",context);
+assert.equal(centralTerminal.state,null,'a terminal signal must not remain Current Advice');
+assert.equal(centralTerminal.historicalState.id,context.mtfDisplaySignal.id);
+for (const status of ['tp2','sl','stopped','expired','closed']) {
+  context.terminalStatusSignal={...context.mtfDisplaySignal,status};
+  assert.equal(vm.runInContext('isActiveOfficialSignal(terminalStatusSignal)',context),false,
+    `${status} must be historical, never a Current Primary Signal`);
+}
+vm.runInContext('activeSignal=null; renderAdvice(centralEvaluationAdvice(mtfEntryEvaluation,previewTrade))',context);
+assert.equal(controls.get('#adviceText').textContent,'لا توجد إشارة رسمية نشطة');
+assert.equal(controls.get('#adviceKind').textContent,'No active official signal');
+assert.equal(controls.get('#activeSignalDetails').style.display,'none');
+
+assert.equal(vm.runInContext("performanceRecordStatus({finalStatus:'expired'}).label",context),'Expired — ليس Win أو Loss');
+assert.equal(vm.runInContext("performanceRecordStatus({finalStatus:'tp2'}).label",context),'TP2 — Win');
+assert.equal(vm.runInContext("performanceRecordStatus({finalStatus:'sl'}).label",context),'SL — Loss');
+context.performancePayload={
+  ok:true,summary:{signals:3,wins:1,losses:1,expired:1},
+  records:[{
+    signalId:'5m:history:expired',createdAt:mtfCreatedAt,timeframe:'5m',direction:'sell',
+    finalStatus:'expired',entry:100,resultR:0.25,
+    quality:{measurementOnly:true,mfe:1.5,mae:0.75},
+    mtfAnalysis:{
+      matrix:{measurementOnly:true,agreementPct:60,directionalAgreementPct:75},
+      laterConfirmations:{summary:{count:2}}
+    }
+  }]
+};
+vm.runInContext('renderPerformanceReport(performancePayload)',context);
+assert.equal(controls.get('#perfExpired').textContent,'1');
+assert.match(performanceTableBody.children[0].children[4].textContent,/ليس Win أو Loss/);
+assert.match(performanceTableBody.children[0].children[7].textContent,/MFE 1.50 • MAE 0.75/);
+assert.match(performanceTableBody.children[0].children[8].textContent,/Agreement 60.0% • Directional 75.0%/);
 
 context.qualityRows = [
   { t: Date.UTC(2026,7,27,12,0), o:2400,h:2401,l:2399,c:2400.5,v:1 },
