@@ -81,18 +81,27 @@
     #performanceTable td.report-loss{color:var(--bad);background:rgba(239,68,68,.16)}
     #performanceTable td.report-expired{color:var(--accent);background:rgba(245,158,11,.16)}
     #performanceTable .report-cell-detail{display:block;margin-top:4px;color:var(--muted);font-size:11px;line-height:1.45}
+    #performanceTable .performance-level+.performance-level::before{content:' • '}
+    #performanceTable .performance-detail-row{display:none}
     @media(max-width:720px){
-      #performanceTable{width:100%;max-width:100%;table-layout:fixed;font-size:9px}
-      #performanceTable th,#performanceTable td{padding:3px 2px;line-height:1.35;vertical-align:top;white-space:normal;word-break:normal}
-      #performanceTable th:nth-child(1),#performanceTable td:nth-child(1){width:10%;overflow-wrap:break-word}
-      #performanceTable th:nth-child(2),#performanceTable td:nth-child(2){width:10%}
-      #performanceTable th:nth-child(3),#performanceTable td:nth-child(3){width:5%;white-space:nowrap}
-      #performanceTable th:nth-child(4),#performanceTable td:nth-child(4){width:6%;white-space:nowrap}
-      #performanceTable th:nth-child(5),#performanceTable td:nth-child(5){width:10%}
-      #performanceTable th:nth-child(6),#performanceTable td:nth-child(6){width:22%;font-variant-numeric:tabular-nums}
-      #performanceTable th:nth-child(7),#performanceTable td:nth-child(7){width:7%;white-space:nowrap;font-variant-numeric:tabular-nums}
-      #performanceTable th:nth-child(8),#performanceTable td:nth-child(8),#performanceTable th:nth-child(9),#performanceTable td:nth-child(9){width:15%;font-size:8px;overflow-wrap:break-word}
-      #performanceTable .report-cell-detail{font-size:8px;line-height:1.35}
+      #performanceTable{width:100%;max-width:100%;table-layout:fixed;font-size:12px}
+      #performanceTable th,#performanceTable td{padding:5px 3px;line-height:1.4;vertical-align:top;white-space:normal;word-break:normal}
+      #performanceTable thead th:nth-child(1),#performanceTable thead th:nth-child(8),#performanceTable thead th:nth-child(9),#performanceTable .performance-record-row td:nth-child(1),#performanceTable .performance-record-row td:nth-child(8),#performanceTable .performance-record-row td:nth-child(9){display:none}
+      #performanceTable th:nth-child(2),#performanceTable .performance-record-row td:nth-child(2){width:20%}
+      #performanceTable th:nth-child(3),#performanceTable .performance-record-row td:nth-child(3){width:9%;white-space:nowrap}
+      #performanceTable th:nth-child(4),#performanceTable .performance-record-row td:nth-child(4){width:12%;white-space:nowrap}
+      #performanceTable th:nth-child(5),#performanceTable .performance-record-row td:nth-child(5){width:24%}
+      #performanceTable th:nth-child(6),#performanceTable .performance-record-row td:nth-child(6){width:20%;white-space:nowrap;font-variant-numeric:tabular-nums}
+      #performanceTable th:nth-child(7),#performanceTable .performance-record-row td:nth-child(7){width:15%;white-space:nowrap;font-variant-numeric:tabular-nums}
+      #performanceTable thead th:nth-child(6){font-size:0}
+      #performanceTable thead th:nth-child(6)::after{content:'Entry';font-size:12px}
+      #performanceTable .performance-record-row td:nth-child(6) .performance-level:not(.performance-entry),#performanceTable .performance-record-row td:nth-child(6) .report-cell-detail{display:none}
+      #performanceTable .performance-detail-row{display:table-row}
+      #performanceTable .performance-detail-row td{padding:8px;border-top:0;text-align:start;background:var(--card2);white-space:normal}
+      #performanceTable .performance-detail-grid{display:grid;gap:6px;font-size:11px;line-height:1.45}
+      #performanceTable .performance-detail-item strong{color:var(--muted);margin-inline-end:4px}
+      #performanceTable .performance-detail-levels{display:flex;flex-wrap:wrap;gap:4px 10px;font-variant-numeric:tabular-nums}
+      #performanceTable .performance-detail-levels span{white-space:nowrap}
     }
   </style>
 </head>
@@ -461,24 +470,71 @@
         const mtfAtEntry=cells[8];
         const quality=cells[9];
         const laterEvents=cells[10];
+        const typeText=cells[0].textContent;
+        const scoreText=score.textContent;
+        const levelsText=levels.textContent;
+        const mtfText=mtfAtEntry.textContent;
+        const qualityText=quality.textContent;
+        const laterText=laterEvents.textContent;
         const addDetail=(cell,label,value)=>{
           const detail=document.createElement('span');
           detail.className='report-cell-detail';
           detail.textContent=`${label}: ${value||'—'}`;
           cell.appendChild(detail);
         };
-        const scoreText=score.textContent;
-        const levelsText=levels.textContent;
-        score.textContent=levelsText;
+        const levelParts=levelsText.split(' • ').filter(Boolean);
+        score.textContent='';
+        levelParts.forEach((value,index)=>{
+          const level=document.createElement('span');
+          level.className=`performance-level${index===0?' performance-entry':''}`;
+          level.textContent=value;
+          score.appendChild(level);
+        });
         addDetail(score,'Score at Entry',scoreText);
-        const qualityText=quality.textContent;
-        const laterText=laterEvents.textContent;
         quality.textContent=qualityText;
         addDetail(quality,'Later confirmations / News Risk',laterText);
         levels.remove();
         laterEvents.remove();
         row.append(result,quality,mtfAtEntry);
+        row.classList.add('performance-record-row');
         row.dataset.legacyPerformanceLayout='true';
+        const detailRow=document.createElement('tr');
+        detailRow.className='performance-detail-row';
+        const detailCell=document.createElement('td');
+        detailCell.colSpan=9;
+        const detailGrid=document.createElement('div');
+        detailGrid.className='performance-detail-grid';
+        const addDetailItem=(label,value)=>{
+          const item=document.createElement('div');
+          item.className='performance-detail-item';
+          const heading=document.createElement('strong');
+          heading.textContent=`${label}:`;
+          const content=document.createElement('span');
+          content.textContent=value||'—';
+          item.append(heading,content);
+          detailGrid.appendChild(item);
+        };
+        addDetailItem('النوع',typeText);
+        addDetailItem('Score at Entry',scoreText);
+        const detailLevels=document.createElement('div');
+        detailLevels.className='performance-detail-levels';
+        levelParts.forEach(value=>{
+          const level=document.createElement('span');
+          level.textContent=value;
+          detailLevels.appendChild(level);
+        });
+        const levelsItem=document.createElement('div');
+        levelsItem.className='performance-detail-item';
+        const levelsHeading=document.createElement('strong');
+        levelsHeading.textContent='Entry / TP1 / TP2 / SL:';
+        levelsItem.append(levelsHeading,detailLevels);
+        detailGrid.appendChild(levelsItem);
+        addDetailItem('MTF-at-Entry',mtfText);
+        addDetailItem('Post-entry Quality',qualityText);
+        addDetailItem('Later confirmations / News Risk',laterText);
+        detailCell.appendChild(detailGrid);
+        detailRow.appendChild(detailCell);
+        row.after(detailRow);
       };
       const compactRows=()=>body.querySelectorAll('tr').forEach(compactRow);
       new MutationObserver(compactRows).observe(body,{childList:true});
