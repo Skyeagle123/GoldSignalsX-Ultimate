@@ -2505,6 +2505,13 @@ function forwardValidationRows(dashboard){
     .map(row=>({section,...row})));
 }
 
+function appendPerformanceCountsCell(row,counts={}){
+  const value=key=>Number(counts?.[key])||0;
+  const cell=document.createElement('td');
+  cell.innerHTML=`Signals ${value('signals')} • Open ${value('open')} • <span class="report-win">W ${value('wins')}</span> • <span class="report-loss">L ${value('losses')}</span> • <span class="report-expired">E ${value('expired')}</span>`;
+  row.appendChild(cell);
+}
+
 function renderForwardValidationDashboard(dashboard){
   const rows=forwardValidationRows(dashboard);
   if (forwardValidationTableBody) {
@@ -2513,7 +2520,7 @@ function renderForwardValidationDashboard(dashboard){
       const row=document.createElement('tr');
       const counts=item.counts||{};
       appendPerformanceCell(row,`${item.section} • ${item.label}`);
-      appendPerformanceCell(row,`Signals ${Number(counts.signals)||0} • Open ${Number(counts.open)||0} • W ${Number(counts.wins)||0} • L ${Number(counts.losses)||0} • E ${Number(counts.expired)||0}`);
+      appendPerformanceCountsCell(row,counts);
       appendPerformanceCell(row,forwardWinRateText(item.winRate));
       appendPerformanceCell(row,forwardMetricText(item.atEntry?.score));
       appendPerformanceCell(row,`MFE ${forwardMetricText(item.postEntry?.mfe)} • MAE ${forwardMetricText(item.postEntry?.mae)}`);
