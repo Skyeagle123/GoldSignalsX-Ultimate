@@ -1092,13 +1092,12 @@ function restoreActiveSignal(){
       localStorage.removeItem(ACTIVE_SIGNAL_KEY);
       return;
     }
-    activeSignal={...saved,origin:'server'};
-    if (!isTerminalSignalStatus(activeSignal.status) && Date.now()-activeSignal.createdAt>signalExpiryMs(activeSignal.tf)) {
-      activeSignal.status='expired';
-      activeSignal.closedAt=Date.now();
-      activeSignal.closedBarTs=Number(lastBars.at(-1)?.t)||Number(activeSignal.signalBarTs)||0;
-      persistActiveSignal();
+    if (Date.now()-Number(saved.createdAt)>signalExpiryMs(saved.tf)) {
+      activeSignal=null;
+      localStorage.removeItem(ACTIVE_SIGNAL_KEY);
+      return;
     }
+    activeSignal={...saved,origin:'server'};
   }catch{}
 }
 

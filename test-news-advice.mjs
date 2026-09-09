@@ -49,6 +49,19 @@ const context = vm.createContext({
 });
 vm.runInContext(source, context);
 
+for (const status of ['active','tp1']) {
+  const staleStoredSignal={
+    id:`5m:${Date.now()-2*60*60_000}:buy`,tf:'5m',status,side:'buy',origin:'server',
+    entry:100,tp1:101,tp2:102,sl:99,createdAt:Date.now()-2*60*60_000,lastPrice:100
+  };
+  store.set('GSX_ACTIVE_SIGNAL_V1',JSON.stringify(staleStoredSignal));
+  vm.runInContext('activeSignal=null; restoreActiveSignal()',context);
+  assert.equal(vm.runInContext('activeSignal',context),null,
+    `an old locally cached ${status} server signal must not remain Current Advice during market closure`);
+  assert.equal(store.has('GSX_ACTIVE_SIGNAL_V1'),false,
+    'the PWA must discard an old cache without inventing an authoritative Expired transition');
+}
+
 let requestedSignalsUrl='';
 context.fetch=async url=>{
   requestedSignalsUrl=String(url);
