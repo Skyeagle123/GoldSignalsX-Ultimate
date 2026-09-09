@@ -86,16 +86,11 @@
     @media(max-width:720px){
       #performanceTable{width:100%;max-width:100%;table-layout:fixed;font-size:12px}
       #performanceTable th,#performanceTable td{padding:5px 3px;line-height:1.4;vertical-align:top;white-space:normal;word-break:normal}
-      #performanceTable thead th:nth-child(1),#performanceTable thead th:nth-child(8),#performanceTable thead th:nth-child(9),#performanceTable .performance-record-row td:nth-child(1),#performanceTable .performance-record-row td:nth-child(8),#performanceTable .performance-record-row td:nth-child(9){display:none}
-      #performanceTable th:nth-child(2),#performanceTable .performance-record-row td:nth-child(2){width:20%}
-      #performanceTable th:nth-child(3),#performanceTable .performance-record-row td:nth-child(3){width:9%;white-space:nowrap}
-      #performanceTable th:nth-child(4),#performanceTable .performance-record-row td:nth-child(4){width:12%;white-space:nowrap}
-      #performanceTable th:nth-child(5),#performanceTable .performance-record-row td:nth-child(5){width:24%}
-      #performanceTable th:nth-child(6),#performanceTable .performance-record-row td:nth-child(6){width:20%;white-space:nowrap;font-variant-numeric:tabular-nums}
-      #performanceTable th:nth-child(7),#performanceTable .performance-record-row td:nth-child(7){width:15%;white-space:nowrap;font-variant-numeric:tabular-nums}
-      #performanceTable thead th:nth-child(6){font-size:0}
-      #performanceTable thead th:nth-child(6)::after{content:'Entry';font-size:12px}
-      #performanceTable .performance-record-row td:nth-child(6) .performance-level:not(.performance-entry),#performanceTable .performance-record-row td:nth-child(6) .report-cell-detail{display:none}
+      #performanceTable thead th:nth-child(1),#performanceTable thead th:nth-child(6),#performanceTable thead th:nth-child(7),#performanceTable thead th:nth-child(8),#performanceTable thead th:nth-child(9),#performanceTable .performance-record-row td:nth-child(1),#performanceTable .performance-record-row td:nth-child(6),#performanceTable .performance-record-row td:nth-child(7),#performanceTable .performance-record-row td:nth-child(8),#performanceTable .performance-record-row td:nth-child(9){display:none}
+      #performanceTable th:nth-child(2),#performanceTable .performance-record-row td:nth-child(2){width:32%}
+      #performanceTable th:nth-child(3),#performanceTable .performance-record-row td:nth-child(3){width:12%;white-space:nowrap}
+      #performanceTable th:nth-child(4),#performanceTable .performance-record-row td:nth-child(4){width:18%;white-space:nowrap}
+      #performanceTable th:nth-child(5),#performanceTable .performance-record-row td:nth-child(5){width:38%}
       #performanceTable .performance-detail-row{display:table-row}
       #performanceTable .performance-detail-row td{padding:8px;border-top:0;text-align:start;background:var(--card2);white-space:normal}
       #performanceTable .performance-detail-grid{display:grid;gap:6px;font-size:11px;line-height:1.45}
@@ -473,6 +468,7 @@
         const typeText=cells[0].textContent;
         const scoreText=score.textContent;
         const levelsText=levels.textContent;
+        const resultText=result.textContent;
         const mtfText=mtfAtEntry.textContent;
         const qualityText=quality.textContent;
         const laterText=laterEvents.textContent;
@@ -504,13 +500,14 @@
         detailCell.colSpan=9;
         const detailGrid=document.createElement('div');
         detailGrid.className='performance-detail-grid';
-        const addDetailItem=(label,value)=>{
+        const addDetailItem=(label,value,className='')=>{
           const item=document.createElement('div');
           item.className='performance-detail-item';
           const heading=document.createElement('strong');
           heading.textContent=`${label}:`;
           const content=document.createElement('span');
           content.textContent=value||'—';
+          if (className) content.className=className;
           item.append(heading,content);
           detailGrid.appendChild(item);
         };
@@ -529,6 +526,7 @@
         levelsHeading.textContent='Entry / TP1 / TP2 / SL:';
         levelsItem.append(levelsHeading,detailLevels);
         detailGrid.appendChild(levelsItem);
+        addDetailItem('R / Expiry',resultText,result.className);
         addDetailItem('MTF-at-Entry',mtfText);
         addDetailItem('Post-entry Quality',qualityText);
         addDetailItem('Later confirmations / News Risk',laterText);
