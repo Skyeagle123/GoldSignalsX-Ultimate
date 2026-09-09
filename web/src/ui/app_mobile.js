@@ -2443,9 +2443,13 @@ function performanceMtfAtEntryText(analysis){
   if (!matrix||matrix.measurementOnly!==true) return 'غير متوفر';
   const agreement=matrix.agreementPct==null?NaN:Number(matrix.agreementPct);
   const directional=matrix.directionalAgreementPct==null?NaN:Number(matrix.directionalAgreementPct);
-  const conflict=matrix.conflictAtEntry?.combined?.conflictPct==null
-    ?NaN:Number(matrix.conflictAtEntry.combined.conflictPct);
-  return `Agreement ${Number.isFinite(agreement)?agreement.toFixed(1)+'%':'—'} • Directional ${Number.isFinite(directional)?directional.toFixed(1)+'%':'—'} • Conflict ${Number.isFinite(conflict)?conflict.toFixed(1)+'%':'Unavailable'}`;
+  const conflictSnapshot=matrix.conflictAtEntry;
+  const conflict=conflictSnapshot?.combined?.conflictPct==null
+    ?NaN:Number(conflictSnapshot.combined.conflictPct);
+  const conflictDetail=Number.isFinite(conflict)
+    ?`${conflict.toFixed(1)}% (${conflictSnapshot?.level||'unclassified'} • ${conflictSnapshot?.sourceType||'source unavailable'})`
+    :'Unavailable';
+  return `Agreement ${Number.isFinite(agreement)?agreement.toFixed(1)+'%':'—'} • Directional ${Number.isFinite(directional)?directional.toFixed(1)+'%':'—'} • Conflict ${conflictDetail}`;
 }
 
 function performancePostEntryText(record){
@@ -2474,6 +2478,13 @@ function forwardConflictMetricText(metric){
     ?forwardMetricText(metric,'%',1):'Unavailable (n=0)';
 }
 
+function forwardDurationText(metric){
+  const sample=Number(metric?.sampleSize)||0;
+  if (!sample||metric?.mean==null) return '— (n=0)';
+  if (metric?.sampleSufficient!==true) return `عينة غير كافية (n=${sample})`;
+  return `${(Number(metric.mean)/60_000).toFixed(1)}m (n=${sample})`;
+}
+
 function forwardWinRateText(winRate){
   const denominator=Number(winRate?.denominator)||0;
   if (!denominator||winRate?.valuePct==null) return '— (TP2+SL=0)';
@@ -2486,7 +2497,8 @@ function forwardValidationRows(dashboard){
   const sections=[
     ['Overall',[{key:'overall',label:'Overall',...(dashboard.overall||{})}]],
     ['Timeframe',dashboard.byTimeframe],['Side',dashboard.bySide],
-    ['Score band',dashboard.byScoreBand],['Final status',dashboard.byFinalStatus]
+    ['Score band',dashboard.byScoreBand],['Final status',dashboard.byFinalStatus],
+    ['Conflict level',dashboard.byConflictLevel],['Conflict source',dashboard.byConflictSource]
   ];
   return sections.flatMap(([section,rows])=>(Array.isArray(rows)?rows:[])
     .filter(row=>Number(row?.counts?.signals)>0||section==='Overall')
@@ -2505,6 +2517,7 @@ function renderForwardValidationDashboard(dashboard){
       appendPerformanceCell(row,forwardWinRateText(item.winRate));
       appendPerformanceCell(row,forwardMetricText(item.atEntry?.score));
       appendPerformanceCell(row,`MFE ${forwardMetricText(item.postEntry?.mfe)} • MAE ${forwardMetricText(item.postEntry?.mae)}`);
+      appendPerformanceCell(row,`Entry opportunity ${forwardMetricText(item.postEntry?.entryOpportunityPct,'%',1)} • T→MFE ${forwardDurationText(item.postEntry?.timeToMfeMs)} • T→MAE ${forwardDurationText(item.postEntry?.timeToMaeMs)}`);
       appendPerformanceCell(row,`Agreement ${forwardMetricText(item.atEntry?.agreementPct,'%',1)} • Directional ${forwardMetricText(item.atEntry?.directionalAgreementPct,'%',1)}`);
       appendPerformanceCell(row,forwardConflictMetricText(item.atEntry?.conflictPct));
       forwardValidationTableBody.appendChild(row);
@@ -2512,7 +2525,7 @@ function renderForwardValidationDashboard(dashboard){
   }
   if (forwardValidationStatusEl) {
     forwardValidationStatusEl.textContent=dashboard?.measurementOnly===true
-      ?'Win rate denominator = TP2 + SL فقط؛ Expired خارج Win/Loss. النسب والمقاييس ذات العينة الصغيرة تُخفى وتظهر كعينة غير كافية.'
+      ?'Win rate denominator = TP2 + SL فقط؛ Expired خارج Win/Loss. Conflict-at-Entry وPost-Signal Timing تحليل فقط، والنسب ذات العينة الصغيرة تُخفى.'
       :'Forward Validation غير متوفر.';
   }
 }

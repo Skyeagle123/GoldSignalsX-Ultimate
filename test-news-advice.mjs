@@ -320,10 +320,21 @@ context.performancePayload={
       },
       postEntry:{
         mfe:{sampleSize:3,sampleSufficient:true,mean:1.5},
-        mae:{sampleSize:3,sampleSufficient:true,mean:0.75}
+        mae:{sampleSize:3,sampleSufficient:true,mean:0.75},
+        entryOpportunityPct:{sampleSize:3,sampleSufficient:true,mean:66.666667},
+        timeToMfeMs:{sampleSize:3,sampleSufficient:true,mean:120000},
+        timeToMaeMs:{sampleSize:3,sampleSufficient:true,mean:180000}
       }
     },
-    byTimeframe:[],bySide:[],byScoreBand:[],byFinalStatus:[]
+    byTimeframe:[],bySide:[],byScoreBand:[],byFinalStatus:[],
+    byConflictLevel:[{
+      key:'medium',label:'Conflict medium (25–<50%)',
+      counts:{signals:1,open:0,wins:0,losses:1,expired:0,resolved:1},
+      winRate:{denominator:1,valuePct:0,sampleSufficient:false},
+      atEntry:{score:{sampleSize:1,sampleSufficient:false,mean:8.75},conflictPct:{sampleSize:1,sampleSufficient:false,mean:25}},
+      postEntry:{mfe:{sampleSize:1,sampleSufficient:false,mean:1.5},mae:{sampleSize:1,sampleSufficient:false,mean:.75}}
+    }],
+    byConflictSource:[]
   },
   records:[{
     signalId:'5m:history:expired',createdAt:mtfCreatedAt,timeframe:'5m',direction:'sell',
@@ -333,7 +344,7 @@ context.performancePayload={
     mtfAnalysis:{
       matrix:{
         measurementOnly:true,agreementPct:60,directionalAgreementPct:75,
-        conflictAtEntry:{measurementOnly:true,combined:{conflictPct:25}}
+        conflictAtEntry:{measurementOnly:true,level:'medium',sourceType:'mtf',combined:{conflictPct:25}}
       },
       laterConfirmations:{summary:{count:2}}
     }
@@ -346,13 +357,16 @@ assert.equal(controls.get('#perfMfe').textContent,'1.50 (n=3)');
 assert.match(controls.get('#forwardValidationStatus').textContent,/TP2 \+ SL/);
 assert.match(forwardValidationTableBody.children[0].children[1].textContent,/Signals 3/);
 assert.equal(forwardValidationTableBody.children[0].children[2].textContent,'عينة غير كافية (n=2)');
-assert.equal(forwardValidationTableBody.children[0].children[6].textContent,'عينة غير كافية (n=1)');
+assert.match(forwardValidationTableBody.children[0].children[5].textContent,/Entry opportunity 66.7% \(n=3\)/);
+assert.match(forwardValidationTableBody.children[0].children[5].textContent,/T→MFE 2.0m \(n=3\)/);
+assert.equal(forwardValidationTableBody.children[0].children[7].textContent,'عينة غير كافية (n=1)');
+assert.match(forwardValidationTableBody.children[1].children[0].textContent,/Conflict level • Conflict medium/);
 assert.equal(vm.runInContext('forwardConflictMetricText({sampleSize:0,mean:null})',context),'Unavailable (n=0)');
 assert.match(performanceTableBody.children[0].children[4].textContent,/ليس Win أو Loss/);
 assert.equal(performanceTableBody.children[0].children[5].textContent,'8.75');
 assert.match(performanceTableBody.children[0].children[6].textContent,/Entry 100.00 • TP1 95.00 • TP2 90.00 • SL 105.00/);
 assert.match(performanceTableBody.children[0].children[8].textContent,/Agreement 60.0% • Directional 75.0%/);
-assert.match(performanceTableBody.children[0].children[8].textContent,/Conflict 25.0%/);
+assert.match(performanceTableBody.children[0].children[8].textContent,/Conflict 25.0% \(medium • mtf\)/);
 assert.doesNotMatch(performanceTableBody.children[0].children[8].textContent,/Confirmations/,
   'MTF-at-Entry must not include later confirmation data');
 assert.match(performanceTableBody.children[0].children[9].textContent,/MFE 1.50 • MAE 0.75/);
