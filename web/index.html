@@ -459,6 +459,7 @@
         if (row.dataset.legacyPerformanceLayout==='true') return;
         const cells=Array.from(row.cells||[]);
         if (cells.length!==11) return;
+        if (window.matchMedia('(max-width:720px)').matches) cells[2].textContent=cells[2].textContent.split('—')[0].trim();
         const score=cells[5];
         const levels=cells[6];
         const result=cells[7];
