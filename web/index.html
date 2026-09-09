@@ -72,12 +72,32 @@
     .signal-news-risk.ended{display:block;border-color:var(--accent);background:rgba(245,158,11,.08)}
     .report-win{color:var(--ok);font-weight:800}.report-loss{color:var(--bad);font-weight:800}
     .report-expired{color:var(--accent);font-weight:800}.report-note{line-height:1.6;margin:8px 0}
-    #performanceTable tr:has(td.report-win){background:rgba(16,185,129,.09)}
-    #performanceTable tr:has(td.report-loss){background:rgba(239,68,68,.09)}
-    #performanceTable tr:has(td.report-expired){background:rgba(245,158,11,.09)}
+    .report-panel{margin-top:12px;padding:10px;background:var(--card2);border:1px solid var(--line);border-radius:12px}
+    #performanceTable tr:has(td.report-win){background:rgba(16,185,129,.09);border-inline-start:4px solid var(--ok)}
+    #performanceTable tr:has(td.report-loss){background:rgba(239,68,68,.09);border-inline-start:4px solid var(--bad)}
+    #performanceTable tr:has(td.report-expired){background:rgba(245,158,11,.09);border-inline-start:4px solid var(--accent)}
     #performanceTable td.report-win{color:var(--ok);background:rgba(16,185,129,.16)}
     #performanceTable td.report-loss{color:var(--bad);background:rgba(239,68,68,.16)}
     #performanceTable td.report-expired{color:var(--accent);background:rgba(245,158,11,.16)}
+    @media(max-width:720px){
+      #performanceTable,#performanceTable tbody{display:block;width:100%}
+      #performanceTable thead{display:none}
+      #performanceTable tr{display:block;margin:10px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+      #performanceTable td{display:grid;grid-template-columns:minmax(112px,36%) 1fr;gap:8px;width:100%;border:0;border-bottom:1px solid var(--line);padding:9px;text-align:start;line-height:1.45}
+      #performanceTable td:last-child{border-bottom:0}
+      #performanceTable td::before{font-weight:800;color:var(--muted)}
+      #performanceTable td:nth-child(1)::before{content:'النوع'}
+      #performanceTable td:nth-child(2)::before{content:'وقت الإنشاء'}
+      #performanceTable td:nth-child(3)::before{content:'TF'}
+      #performanceTable td:nth-child(4)::before{content:'الاتجاه'}
+      #performanceTable td:nth-child(5)::before{content:'الحالة / النتيجة'}
+      #performanceTable td:nth-child(6)::before{content:'Score at Entry'}
+      #performanceTable td:nth-child(7)::before{content:'Entry / TP / SL'}
+      #performanceTable td:nth-child(8)::before{content:'R / Expiry mark'}
+      #performanceTable td:nth-child(9)::before{content:'MTF-at-Entry'}
+      #performanceTable td:nth-child(10)::before{content:'Post-entry Quality'}
+      #performanceTable td:nth-child(11)::before{content:'Later events'}
+    }
   </style>
 </head>
 <body>
@@ -295,34 +315,42 @@
     <section id="tab-perf" class="tab card" style="display:none">
       <div class="row" style="justify-content:space-between">
         <div>
-          <div class="title">Forward Validation Dashboard — السجل الرسمي</div>
-          <div class="small report-note">المصدر الوحيد هو Official Server Records. بيانات MTF-at-Entry منفصلة عن later confirmations وMFE/MAE وNews Risk اللاحقة، ولا تُستخدم أي نتيجة لاحقة كأنها كانت معروفة عند الدخول.</div>
+          <div class="title">Performance Records — السجل الرسمي</div>
+          <div class="small report-note">المصدر الوحيد هو Official Server Records، ولا تُنشئ الواجهة نتائج محلية مستقلة.</div>
         </div>
         <button id="btnPerformanceRefresh" class="primary">تحديث السجل</button>
       </div>
-      <div class="row" style="gap:12px;margin-top:8px">
-        <span class="chip">الإشارات: <b id="perfSignals">—</b></span>
-        <span class="chip report-win">TP2 / Win: <b id="perfWins">—</b></span>
-        <span class="chip report-loss">SL / Loss: <b id="perfLosses">—</b></span>
-        <span class="chip report-expired">Expired مستقل: <b id="perfExpired">—</b></span>
-        <span class="chip">Win rate: <b id="perfWinRate">—</b></span>
-        <span class="chip">Avg MFE: <b id="perfMfe">—</b></span>
-        <span class="chip">Avg MAE: <b id="perfMae">—</b></span>
+      <div class="report-panel">
+        <div class="title">Official Historical Records — سجل الإشارات الرسمية</div>
+        <div class="small report-note">كل بطاقة أو صف يمثل Official Primary Signal واحدًا ويجيب: ماذا حدث لهذه الإشارة؟</div>
+        <div style="overflow:auto;margin-top:10px">
+          <table class="nice-table" id="performanceTable">
+            <thead><tr><th>النوع</th><th>وقت الإنشاء</th><th>TF</th><th>الاتجاه</th><th>الحالة</th><th>Score at entry</th><th>Entry / TP1 / TP2 / SL</th><th>النتيجة</th><th>MTF-at-Entry</th><th>Post-entry Quality</th><th>Later confirmations / News Risk</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="performanceStatus" class="small report-note">جاري تحميل السجل…</div>
       </div>
-      <div id="performanceStatus" class="small report-note">جاري تحميل السجل…</div>
-      <div id="forwardValidationStatus" class="small report-note"></div>
-      <div style="overflow:auto;margin-top:10px">
-        <table class="nice-table" id="forwardValidationTable">
-          <thead><tr><th>التحليل</th><th>Raw counts</th><th>Win rate — TP2/(TP2+SL)</th><th>Score at entry</th><th>MFE/MAE post-entry</th><th>Post-Signal Timing / Entry Quality</th><th>MTF Agreement at entry</th><th>Indicator / MTF Conflict at entry</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="title" style="margin-top:14px">Official Historical Records</div>
-      <div style="overflow:auto;margin-top:10px">
-        <table class="nice-table" id="performanceTable">
-          <thead><tr><th>النوع</th><th>وقت الإنشاء</th><th>TF</th><th>الاتجاه</th><th>الحالة</th><th>Score at entry</th><th>Entry / TP1 / TP2 / SL</th><th>النتيجة</th><th>MTF-at-Entry</th><th>Post-entry Quality</th><th>Later confirmations / News Risk</th></tr></thead>
-          <tbody></tbody>
-        </table>
+
+      <div class="report-panel">
+        <div class="title">Forward Validation — التحليل التجميعي</div>
+        <div class="small report-note">يلخص إحصائيًا ماذا تقول النتائج المجمعة عن أداء النظام. بيانات at-entry منفصلة عن later confirmations وMFE/MAE وNews Risk اللاحقة.</div>
+        <div class="row" style="gap:12px;margin-top:8px">
+          <span class="chip">الإشارات: <b id="perfSignals">—</b></span>
+          <span class="chip report-win">TP2 / Win: <b id="perfWins">—</b></span>
+          <span class="chip report-loss">SL / Loss: <b id="perfLosses">—</b></span>
+          <span class="chip report-expired">Expired مستقل: <b id="perfExpired">—</b></span>
+          <span class="chip">Win rate: <b id="perfWinRate">—</b></span>
+          <span class="chip">Avg MFE: <b id="perfMfe">—</b></span>
+          <span class="chip">Avg MAE: <b id="perfMae">—</b></span>
+        </div>
+        <div id="forwardValidationStatus" class="small report-note"></div>
+        <div style="overflow:auto;margin-top:10px">
+          <table class="nice-table" id="forwardValidationTable">
+            <thead><tr><th>التحليل</th><th>Raw counts</th><th>Win rate — TP2/(TP2+SL)</th><th>Score at entry</th><th>MFE/MAE post-entry</th><th>Post-Signal Timing / Entry Quality</th><th>MTF Agreement at entry</th><th>Indicator / MTF Conflict at entry</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
