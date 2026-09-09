@@ -72,6 +72,12 @@
     .signal-news-risk.ended{display:block;border-color:var(--accent);background:rgba(245,158,11,.08)}
     .report-win{color:var(--ok);font-weight:800}.report-loss{color:var(--bad);font-weight:800}
     .report-expired{color:var(--accent);font-weight:800}.report-note{line-height:1.6;margin:8px 0}
+    #performanceTable tr:has(td.report-win){background:rgba(16,185,129,.09)}
+    #performanceTable tr:has(td.report-loss){background:rgba(239,68,68,.09)}
+    #performanceTable tr:has(td.report-expired){background:rgba(245,158,11,.09)}
+    #performanceTable td.report-win{color:var(--ok);background:rgba(16,185,129,.16)}
+    #performanceTable td.report-loss{color:var(--bad);background:rgba(239,68,68,.16)}
+    #performanceTable td.report-expired{color:var(--accent);background:rgba(245,158,11,.16)}
   </style>
 </head>
 <body>
