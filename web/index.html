@@ -80,6 +80,7 @@
     #performanceTable td.report-win{color:var(--ok);background:rgba(16,185,129,.16)}
     #performanceTable td.report-loss{color:var(--bad);background:rgba(239,68,68,.16)}
     #performanceTable td.report-expired{color:var(--accent);background:rgba(245,158,11,.16)}
+    #performanceTable .report-cell-detail{display:block;margin-top:4px;color:var(--muted);font-size:11px;line-height:1.45}
   </style>
 </head>
 <body>
@@ -312,10 +313,9 @@
         <span class="chip">Avg MAE: <b id="perfMae">—</b></span>
       </div>
       <div id="performanceStatus" class="small report-note">جاري تحميل السجل…</div>
-      <div class="title" style="margin-top:14px">Official Historical Records</div>
       <div style="overflow:auto;margin-top:10px">
         <table class="nice-table" id="performanceTable">
-          <thead><tr><th>النوع</th><th>وقت الإنشاء</th><th>TF</th><th>الاتجاه</th><th>الحالة</th><th>Score at entry</th><th>Entry / TP1 / TP2 / SL</th><th>النتيجة</th><th>MTF-at-Entry</th><th>Post-entry Quality</th><th>Later confirmations / News Risk</th></tr></thead>
+          <thead><tr><th>النوع</th><th>وقت الإنشاء</th><th>TF</th><th>الاتجاه</th><th>الحالة</th><th>Entry / Score / TP1 / TP2 / SL</th><th>R / Expiry</th><th>Signal Quality / Later events — تحليل فقط</th><th>MTF Analysis at Entry — تحليل فقط</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -432,6 +432,46 @@
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <script src="./src/ui/news.js?v=20260828-13"></script>
   <script src="./src/ui/app_mobile.js?v=20260908-2"></script>
+  <script>
+    // Presentation-only adapter: retain the legacy nine-column record layout
+    // while keeping every field supplied by the current performance renderer.
+    (()=>{
+      const body=document.querySelector('#performanceTable tbody');
+      if (!body) return;
+      const compactRow=row=>{
+        if (row.dataset.legacyPerformanceLayout==='true') return;
+        const cells=Array.from(row.cells||[]);
+        if (cells.length!==11) return;
+        const score=cells[5];
+        const levels=cells[6];
+        const result=cells[7];
+        const mtfAtEntry=cells[8];
+        const quality=cells[9];
+        const laterEvents=cells[10];
+        const addDetail=(cell,label,value)=>{
+          const detail=document.createElement('span');
+          detail.className='report-cell-detail';
+          detail.textContent=`${label}: ${value||'—'}`;
+          cell.appendChild(detail);
+        };
+        const scoreText=score.textContent;
+        const levelsText=levels.textContent;
+        score.textContent=levelsText;
+        addDetail(score,'Score at Entry',scoreText);
+        const qualityText=quality.textContent;
+        const laterText=laterEvents.textContent;
+        quality.textContent=qualityText;
+        addDetail(quality,'Later confirmations / News Risk',laterText);
+        levels.remove();
+        laterEvents.remove();
+        row.append(result,quality,mtfAtEntry);
+        row.dataset.legacyPerformanceLayout='true';
+      };
+      const compactRows=()=>body.querySelectorAll('tr').forEach(compactRow);
+      new MutationObserver(compactRows).observe(body,{childList:true});
+      compactRows();
+    })();
+  </script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {}));
