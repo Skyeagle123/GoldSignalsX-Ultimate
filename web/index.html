@@ -81,6 +81,19 @@
     #performanceTable td.report-loss{color:var(--bad);background:rgba(239,68,68,.16)}
     #performanceTable td.report-expired{color:var(--accent);background:rgba(245,158,11,.16)}
     #performanceTable .report-cell-detail{display:block;margin-top:4px;color:var(--muted);font-size:11px;line-height:1.45}
+    @media(max-width:720px){
+      #performanceTable{width:100%;max-width:100%;table-layout:fixed;font-size:9px}
+      #performanceTable th,#performanceTable td{padding:3px 2px;line-height:1.35;vertical-align:top;white-space:normal;word-break:normal}
+      #performanceTable th:nth-child(1),#performanceTable td:nth-child(1){width:10%;overflow-wrap:break-word}
+      #performanceTable th:nth-child(2),#performanceTable td:nth-child(2){width:10%}
+      #performanceTable th:nth-child(3),#performanceTable td:nth-child(3){width:5%;white-space:nowrap}
+      #performanceTable th:nth-child(4),#performanceTable td:nth-child(4){width:6%;white-space:nowrap}
+      #performanceTable th:nth-child(5),#performanceTable td:nth-child(5){width:10%}
+      #performanceTable th:nth-child(6),#performanceTable td:nth-child(6){width:22%;font-variant-numeric:tabular-nums}
+      #performanceTable th:nth-child(7),#performanceTable td:nth-child(7){width:7%;white-space:nowrap;font-variant-numeric:tabular-nums}
+      #performanceTable th:nth-child(8),#performanceTable td:nth-child(8),#performanceTable th:nth-child(9),#performanceTable td:nth-child(9){width:15%;font-size:8px;overflow-wrap:break-word}
+      #performanceTable .report-cell-detail{font-size:8px;line-height:1.35}
+    }
   </style>
 </head>
 <body>
