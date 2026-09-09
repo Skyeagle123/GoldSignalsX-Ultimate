@@ -132,7 +132,12 @@ const perfSignalsEl = $('#perfSignals');
 const perfWinsEl = $('#perfWins');
 const perfLossesEl = $('#perfLosses');
 const perfExpiredEl = $('#perfExpired');
+const perfWinRateEl = $('#perfWinRate');
+const perfMfeEl = $('#perfMfe');
+const perfMaeEl = $('#perfMae');
 const performanceStatusEl = $('#performanceStatus');
+const forwardValidationStatusEl = $('#forwardValidationStatus');
+const forwardValidationTableBody = $('#forwardValidationTable tbody');
 const performanceTableBody = $('#performanceTable tbody');
 
 // Pivot
@@ -2421,6 +2426,7 @@ function performanceRecordStatus(record){
   if (status==='tp2') return {label:'TP2 — Win',className:'report-win'};
   if (status==='sl'||status==='stopped') return {label:'SL — Loss',className:'report-loss'};
   if (status==='expired') return {label:'Expired — ليس Win أو Loss',className:'report-expired'};
+  if (status==='closed') return {label:'Closed — ليس Win أو Loss',className:'report-expired'};
   if (status==='active'||status==='tp1') return {label:'Open Primary Signal',className:''};
   return {label:status?`Closed — ${status}`:'Historical record',className:''};
 }
@@ -2432,13 +2438,83 @@ function performanceQualityText(quality){
   return `MFE ${Number.isFinite(mfe)?mfe.toFixed(2):'—'} • MAE ${Number.isFinite(mae)?mae.toFixed(2):'—'}`;
 }
 
-function performanceMtfAnalysisText(analysis){
+function performanceMtfAtEntryText(analysis){
   const matrix=analysis?.matrix;
   if (!matrix||matrix.measurementOnly!==true) return 'غير متوفر';
   const agreement=matrix.agreementPct==null?NaN:Number(matrix.agreementPct);
   const directional=matrix.directionalAgreementPct==null?NaN:Number(matrix.directionalAgreementPct);
-  const confirmations=Number(analysis?.laterConfirmations?.summary?.count)||0;
-  return `Agreement ${Number.isFinite(agreement)?agreement.toFixed(1)+'%':'—'} • Directional ${Number.isFinite(directional)?directional.toFixed(1)+'%':'—'} • Confirmations ${confirmations}`;
+  const conflict=matrix.conflictAtEntry?.combined?.conflictPct==null
+    ?NaN:Number(matrix.conflictAtEntry.combined.conflictPct);
+  return `Agreement ${Number.isFinite(agreement)?agreement.toFixed(1)+'%':'—'} • Directional ${Number.isFinite(directional)?directional.toFixed(1)+'%':'—'} • Conflict ${Number.isFinite(conflict)?conflict.toFixed(1)+'%':'Unavailable'}`;
+}
+
+function performancePostEntryText(record){
+  const confirmations=Number(
+    record?.postEntry?.laterMtfConfirmations?.summary?.count??
+    record?.mtfAnalysis?.laterConfirmations?.summary?.count
+  )||0;
+  const windows=Number(record?.postEntry?.newsRisk?.windowCount??record?.newsRisk?.postEntry?.windowCount)||0;
+  return `Later confirmations ${confirmations} • News Risk windows ${windows}`;
+}
+
+function performanceLevelsText(record){
+  const price=value=>Number.isFinite(Number(value))?Number(value).toFixed(2):'—';
+  return `Entry ${price(record?.entry)} • TP1 ${price(record?.tp1)} • TP2 ${price(record?.tp2)} • SL ${price(record?.sl)}`;
+}
+
+function forwardMetricText(metric,suffix='',digits=2){
+  const sample=Number(metric?.sampleSize)||0;
+  if (!sample||metric?.mean==null) return '— (n=0)';
+  if (metric?.sampleSufficient!==true) return `عينة غير كافية (n=${sample})`;
+  return `${Number(metric.mean).toFixed(digits)}${suffix} (n=${sample})`;
+}
+
+function forwardConflictMetricText(metric){
+  return Number(metric?.sampleSize)>0&&metric?.mean!=null
+    ?forwardMetricText(metric,'%',1):'Unavailable (n=0)';
+}
+
+function forwardWinRateText(winRate){
+  const denominator=Number(winRate?.denominator)||0;
+  if (!denominator||winRate?.valuePct==null) return '— (TP2+SL=0)';
+  if (winRate?.sampleSufficient!==true) return `عينة غير كافية (n=${denominator})`;
+  return `${Number(winRate.valuePct).toFixed(1)}% (n=${denominator})`;
+}
+
+function forwardValidationRows(dashboard){
+  if (!dashboard||dashboard.measurementOnly!==true) return [];
+  const sections=[
+    ['Overall',[{key:'overall',label:'Overall',...(dashboard.overall||{})}]],
+    ['Timeframe',dashboard.byTimeframe],['Side',dashboard.bySide],
+    ['Score band',dashboard.byScoreBand],['Final status',dashboard.byFinalStatus]
+  ];
+  return sections.flatMap(([section,rows])=>(Array.isArray(rows)?rows:[])
+    .filter(row=>Number(row?.counts?.signals)>0||section==='Overall')
+    .map(row=>({section,...row})));
+}
+
+function renderForwardValidationDashboard(dashboard){
+  const rows=forwardValidationRows(dashboard);
+  if (forwardValidationTableBody) {
+    forwardValidationTableBody.innerHTML='';
+    for (const item of rows) {
+      const row=document.createElement('tr');
+      const counts=item.counts||{};
+      appendPerformanceCell(row,`${item.section} • ${item.label}`);
+      appendPerformanceCell(row,`Signals ${Number(counts.signals)||0} • Open ${Number(counts.open)||0} • W ${Number(counts.wins)||0} • L ${Number(counts.losses)||0} • E ${Number(counts.expired)||0}`);
+      appendPerformanceCell(row,forwardWinRateText(item.winRate));
+      appendPerformanceCell(row,forwardMetricText(item.atEntry?.score));
+      appendPerformanceCell(row,`MFE ${forwardMetricText(item.postEntry?.mfe)} • MAE ${forwardMetricText(item.postEntry?.mae)}`);
+      appendPerformanceCell(row,`Agreement ${forwardMetricText(item.atEntry?.agreementPct,'%',1)} • Directional ${forwardMetricText(item.atEntry?.directionalAgreementPct,'%',1)}`);
+      appendPerformanceCell(row,forwardConflictMetricText(item.atEntry?.conflictPct));
+      forwardValidationTableBody.appendChild(row);
+    }
+  }
+  if (forwardValidationStatusEl) {
+    forwardValidationStatusEl.textContent=dashboard?.measurementOnly===true
+      ?'Win rate denominator = TP2 + SL فقط؛ Expired خارج Win/Loss. النسب والمقاييس ذات العينة الصغيرة تُخفى وتظهر كعينة غير كافية.'
+      :'Forward Validation غير متوفر.';
+  }
 }
 
 function performanceResultText(record){
@@ -2463,6 +2539,11 @@ function renderPerformanceReport(payload){
   if (perfWinsEl) perfWinsEl.textContent=available?String(Number(summary.wins)||0):'—';
   if (perfLossesEl) perfLossesEl.textContent=available?String(Number(summary.losses)||0):'—';
   if (perfExpiredEl) perfExpiredEl.textContent=available?String(Number(summary.expired)||0):'—';
+  const dashboard=payload?.dashboard;
+  if (perfWinRateEl) perfWinRateEl.textContent=available?forwardWinRateText(dashboard?.overall?.winRate):'—';
+  if (perfMfeEl) perfMfeEl.textContent=available?forwardMetricText(dashboard?.overall?.postEntry?.mfe):'—';
+  if (perfMaeEl) perfMaeEl.textContent=available?forwardMetricText(dashboard?.overall?.postEntry?.mae):'—';
+  renderForwardValidationDashboard(available?dashboard:null);
   const records=Array.isArray(payload?.records)?payload.records:[];
   if (performanceTableBody) {
     performanceTableBody.innerHTML='';
@@ -2474,16 +2555,18 @@ function renderPerformanceReport(payload){
       appendPerformanceCell(row,signalTimeframeText(record.timeframe));
       appendPerformanceCell(row,record.direction==='buy'?'BUY':record.direction==='sell'?'SELL':'—');
       appendPerformanceCell(row,status.label,status.className);
-      appendPerformanceCell(row,Number.isFinite(Number(record.entry))?Number(record.entry).toFixed(2):'—');
+      appendPerformanceCell(row,record.score==null?'—':Number(record.score).toFixed(2));
+      appendPerformanceCell(row,performanceLevelsText(record));
       appendPerformanceCell(row,performanceResultText(record),status.className);
+      appendPerformanceCell(row,performanceMtfAtEntryText(record.mtfAnalysis));
       appendPerformanceCell(row,performanceQualityText(record.quality));
-      appendPerformanceCell(row,performanceMtfAnalysisText(record.mtfAnalysis));
+      appendPerformanceCell(row,performancePostEntryText(record));
       performanceTableBody.appendChild(row);
     }
   }
   if (performanceStatusEl) {
     performanceStatusEl.textContent=payload?.ok
-      ?`${records.length} سجل رسمي • Expired معروض كفئة مستقلة وليس Win/Loss.`
+      ?`${records.length} سجل رسمي من Worker • Expired مستقل وليس Win/Loss • at-entry مفصول عن post-entry.`
       :'تعذّر تحميل السجل الرسمي.';
   }
 }

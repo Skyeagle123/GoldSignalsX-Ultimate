@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('./web/src/ui/app_mobile.js', import.meta.url), 'utf8');
 const store = new Map();
 const performanceTableBody={innerHTML:'',children:[],appendChild(node){this.children.push(node);}};
+const forwardValidationTableBody={innerHTML:'',children:[],appendChild(node){this.children.push(node);}};
 const controls = new Map([
   ['#nyFilterOn',{checked:true}],
   ['#nyStart',{value:'08:00'}],
@@ -25,7 +26,12 @@ const controls = new Map([
   ['#perfWins',{textContent:''}],
   ['#perfLosses',{textContent:''}],
   ['#perfExpired',{textContent:''}],
+  ['#perfWinRate',{textContent:''}],
+  ['#perfMfe',{textContent:''}],
+  ['#perfMae',{textContent:''}],
   ['#performanceStatus',{textContent:''}],
+  ['#forwardValidationStatus',{textContent:''}],
+  ['#forwardValidationTable tbody',forwardValidationTableBody],
   ['#performanceTable tbody',performanceTableBody]
 ]);
 const windowMock = { addEventListener: () => {}, dispatchEvent: () => {}, GSXNewsState: null };
@@ -298,23 +304,59 @@ assert.equal(controls.get('#activeSignalDetails').style.display,'none');
 assert.equal(vm.runInContext("performanceRecordStatus({finalStatus:'expired'}).label",context),'Expired — ليس Win أو Loss');
 assert.equal(vm.runInContext("performanceRecordStatus({finalStatus:'tp2'}).label",context),'TP2 — Win');
 assert.equal(vm.runInContext("performanceRecordStatus({finalStatus:'sl'}).label",context),'SL — Loss');
+assert.equal(vm.runInContext("performanceRecordStatus({finalStatus:'closed'}).label",context),'Closed — ليس Win أو Loss');
 context.performancePayload={
   ok:true,summary:{signals:3,wins:1,losses:1,expired:1},
+  dashboard:{
+    measurementOnly:true,
+    overall:{
+      counts:{signals:3,open:0,wins:1,losses:1,expired:1,resolved:2},
+      winRate:{numerator:1,denominator:2,valuePct:50,sampleSufficient:false,minimumSample:10},
+      atEntry:{
+        score:{sampleSize:3,sampleSufficient:true,mean:8.75},
+        agreementPct:{sampleSize:1,sampleSufficient:false,mean:60},
+        directionalAgreementPct:{sampleSize:1,sampleSufficient:false,mean:75},
+        conflictPct:{sampleSize:1,sampleSufficient:false,mean:25}
+      },
+      postEntry:{
+        mfe:{sampleSize:3,sampleSufficient:true,mean:1.5},
+        mae:{sampleSize:3,sampleSufficient:true,mean:0.75}
+      }
+    },
+    byTimeframe:[],bySide:[],byScoreBand:[],byFinalStatus:[]
+  },
   records:[{
     signalId:'5m:history:expired',createdAt:mtfCreatedAt,timeframe:'5m',direction:'sell',
-    finalStatus:'expired',entry:100,resultR:0.25,
+    finalStatus:'expired',entry:100,tp1:95,tp2:90,sl:105,score:8.75,resultR:0.25,
     quality:{measurementOnly:true,mfe:1.5,mae:0.75},
+    newsRisk:{postEntry:{windowCount:1}},
     mtfAnalysis:{
-      matrix:{measurementOnly:true,agreementPct:60,directionalAgreementPct:75},
+      matrix:{
+        measurementOnly:true,agreementPct:60,directionalAgreementPct:75,
+        conflictAtEntry:{measurementOnly:true,combined:{conflictPct:25}}
+      },
       laterConfirmations:{summary:{count:2}}
     }
   }]
 };
 vm.runInContext('renderPerformanceReport(performancePayload)',context);
 assert.equal(controls.get('#perfExpired').textContent,'1');
+assert.equal(controls.get('#perfWinRate').textContent,'عينة غير كافية (n=2)');
+assert.equal(controls.get('#perfMfe').textContent,'1.50 (n=3)');
+assert.match(controls.get('#forwardValidationStatus').textContent,/TP2 \+ SL/);
+assert.match(forwardValidationTableBody.children[0].children[1].textContent,/Signals 3/);
+assert.equal(forwardValidationTableBody.children[0].children[2].textContent,'عينة غير كافية (n=2)');
+assert.equal(forwardValidationTableBody.children[0].children[6].textContent,'عينة غير كافية (n=1)');
+assert.equal(vm.runInContext('forwardConflictMetricText({sampleSize:0,mean:null})',context),'Unavailable (n=0)');
 assert.match(performanceTableBody.children[0].children[4].textContent,/ليس Win أو Loss/);
-assert.match(performanceTableBody.children[0].children[7].textContent,/MFE 1.50 • MAE 0.75/);
+assert.equal(performanceTableBody.children[0].children[5].textContent,'8.75');
+assert.match(performanceTableBody.children[0].children[6].textContent,/Entry 100.00 • TP1 95.00 • TP2 90.00 • SL 105.00/);
 assert.match(performanceTableBody.children[0].children[8].textContent,/Agreement 60.0% • Directional 75.0%/);
+assert.match(performanceTableBody.children[0].children[8].textContent,/Conflict 25.0%/);
+assert.doesNotMatch(performanceTableBody.children[0].children[8].textContent,/Confirmations/,
+  'MTF-at-Entry must not include later confirmation data');
+assert.match(performanceTableBody.children[0].children[9].textContent,/MFE 1.50 • MAE 0.75/);
+assert.match(performanceTableBody.children[0].children[10].textContent,/Later confirmations 2 • News Risk windows 1/);
 
 context.qualityRows = [
   { t: Date.UTC(2026,7,27,12,0), o:2400,h:2401,l:2399,c:2400.5,v:1 },

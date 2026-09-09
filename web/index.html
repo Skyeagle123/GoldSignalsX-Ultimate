@@ -289,8 +289,8 @@
     <section id="tab-perf" class="tab card" style="display:none">
       <div class="row" style="justify-content:space-between">
         <div>
-          <div class="title">السجل الرسمي — Historical / Performance Records</div>
-          <div class="small report-note">هذه سجلات تاريخية وليست توصيات حالية. MFE/MAE وMTF Agreement بيانات تحليلية فقط ولا تُستخدم كـBuy/Sell trigger.</div>
+          <div class="title">Forward Validation Dashboard — السجل الرسمي</div>
+          <div class="small report-note">المصدر الوحيد هو Official Server Records. بيانات MTF-at-Entry منفصلة عن later confirmations وMFE/MAE وNews Risk اللاحقة، ولا تُستخدم أي نتيجة لاحقة كأنها كانت معروفة عند الدخول.</div>
         </div>
         <button id="btnPerformanceRefresh" class="primary">تحديث السجل</button>
       </div>
@@ -299,11 +299,22 @@
         <span class="chip">TP2 / Win: <b id="perfWins">—</b></span>
         <span class="chip">SL / Loss: <b id="perfLosses">—</b></span>
         <span class="chip">Expired مستقل: <b id="perfExpired">—</b></span>
+        <span class="chip">Win rate: <b id="perfWinRate">—</b></span>
+        <span class="chip">Avg MFE: <b id="perfMfe">—</b></span>
+        <span class="chip">Avg MAE: <b id="perfMae">—</b></span>
       </div>
       <div id="performanceStatus" class="small report-note">جاري تحميل السجل…</div>
+      <div id="forwardValidationStatus" class="small report-note"></div>
+      <div style="overflow:auto;margin-top:10px">
+        <table class="nice-table" id="forwardValidationTable">
+          <thead><tr><th>التحليل</th><th>Raw counts</th><th>Win rate — TP2/(TP2+SL)</th><th>Score at entry</th><th>MFE/MAE post-entry</th><th>MTF Agreement at entry</th><th>Indicator / MTF Conflict at entry</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="title" style="margin-top:14px">Official Historical Records</div>
       <div style="overflow:auto;margin-top:10px">
         <table class="nice-table" id="performanceTable">
-          <thead><tr><th>النوع</th><th>وقت الإنشاء</th><th>TF</th><th>الاتجاه</th><th>الحالة</th><th>Entry</th><th>النتيجة</th><th>Signal Quality — تحليل فقط</th><th>MTF Analysis — تحليل فقط</th></tr></thead>
+          <thead><tr><th>النوع</th><th>وقت الإنشاء</th><th>TF</th><th>الاتجاه</th><th>الحالة</th><th>Score at entry</th><th>Entry / TP1 / TP2 / SL</th><th>النتيجة</th><th>MTF-at-Entry</th><th>Post-entry Quality</th><th>Later confirmations / News Risk</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
