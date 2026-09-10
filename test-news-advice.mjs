@@ -3,6 +3,7 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('./web/src/ui/app_mobile.js', import.meta.url), 'utf8');
+const newsSource = await readFile(new URL('./web/src/ui/news.js', import.meta.url), 'utf8');
 const store = new Map();
 const performanceTableBody={innerHTML:'',children:[],appendChild(node){this.children.push(node);}};
 const forwardValidationTableBody={innerHTML:'',children:[],appendChild(node){this.children.push(node);}};
@@ -404,5 +405,12 @@ const stats = vm.runInContext('summarizeBacktestTrades(trades)', context);
 assert.ok(stats.winLow < stats.winPct && stats.winPct < stats.winHigh, 'win rate must include a 95% uncertainty range');
 assert.equal(stats.avgSignalScore, 76.25, 'the displayed model score must stay separate from observed win rate');
 assert.equal(vm.runInContext("backtestSampleLabel({trades:4,oos:{trades:1,netR:-1}})", context), 'عينة غير كافية');
+
+assert.match(newsSource,/News Alert — ليس Trading Signal/,
+  'each PWA news item and the news advice must be explicitly labeled');
+assert.match(newsSource,/News Alert — خبر مهم للذهب/,
+  'the critical PWA news toast must be explicitly labeled');
+assert.match(newsSource,/ليس Trading Signal —/,
+  'the critical PWA news toast message must reject Trading Signal semantics');
 
 console.log('news advice tests passed');

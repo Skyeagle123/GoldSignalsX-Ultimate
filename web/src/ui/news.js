@@ -74,6 +74,7 @@
     if (arabicSummary) container.appendChild(textElement('div', arabicSummary, 'small news-summary-ar'));
     const meta = document.createElement('div');
     meta.className = 'news-meta';
+    meta.appendChild(textElement('span', 'News Alert — ليس Trading Signal'));
     meta.appendChild(textElement('span', importance.text));
     meta.appendChild(textElement('span', `${direction.icon} ${direction.text}`, direction.className));
     meta.appendChild(textElement('span', `ثقة ${Math.round(Number(item?.confidence || 0))}%`));
@@ -94,8 +95,8 @@
     const message = $('#toastMsg');
     if (!toast || !title || !message) return;
     const direction = directionMeta(critical.direction);
-    title.textContent = 'خبر مهم للذهب';
-    message.textContent = `${direction.text}: ${critical.titleAr || critical.title}`;
+    title.textContent = 'News Alert — خبر مهم للذهب';
+    message.textContent = `ليس Trading Signal — ${direction.text}: ${critical.titleAr || critical.title}`;
     toast.classList.add('show');
     setTimeout(() => toast.classList.remove('show'), 12000);
   }
@@ -120,7 +121,7 @@
     if (refs.advice) {
       const advice = String(brief?.goldBias?.advice || 'لا يوجد ميل إخباري واضح حالياً.');
       const safety = brief?.safety?.blockTechnicalSignal ? ` ${brief.safety.reason || ''}` : '';
-      refs.advice.textContent = `${advice}${safety}`.trim();
+      refs.advice.textContent = `News Alert — ليس Trading Signal. ${advice}${safety}`.trim();
     }
 
     if (refs.list) {
