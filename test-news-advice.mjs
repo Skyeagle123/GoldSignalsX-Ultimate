@@ -8,6 +8,7 @@ const store = new Map();
 const performanceTableBody={innerHTML:'',children:[],appendChild(node){this.children.push(node);}};
 const forwardValidationTableBody={innerHTML:'',children:[],appendChild(node){this.children.push(node);}};
 const controls = new Map([
+  ['nav.tabs button[data-tab="adv"]',{textContent:''}],
   ['#nyFilterOn',{checked:true}],
   ['#nyStart',{value:'08:00'}],
   ['#nyEnd',{value:'17:00'}],
@@ -233,6 +234,7 @@ context.mtfDisplaySignal=centralMtf.state;
 for (const status of ['active','tp1']) {
   context.mtfDisplaySignal.status=status;
   vm.runInContext('activeSignal=mtfDisplaySignal; renderAdvice(signalAsAdvice(mtfDisplaySignal,mtfEntryEvaluation))',context);
+  assert.equal(controls.get('nav.tabs button[data-tab="adv"]').textContent,'💬 النصيحة');
   assert.equal(controls.get('#mtfVal').textContent,'↑0 / ↓2 / —0 • 15m, 60m');
   assert.equal(
     controls.get('#mtfLaterVal').textContent,'↑0 / ↓1 / —0 • 1m',
@@ -296,8 +298,11 @@ for (const status of ['tp2','sl','stopped','expired','closed']) {
   context.terminalStatusSignal={...context.mtfDisplaySignal,status};
   assert.equal(vm.runInContext('isActiveOfficialSignal(terminalStatusSignal)',context),false,
     `${status} must be historical, never a Current Primary Signal`);
+  vm.runInContext('activeSignal=terminalStatusSignal; renderAdvice(centralEvaluationAdvice(mtfEntryEvaluation,previewTrade))',context);
+  assert.equal(controls.get('nav.tabs button[data-tab="adv"]').textContent,'💬 لا توجد توصية');
 }
 vm.runInContext('activeSignal=null; renderAdvice(centralEvaluationAdvice(mtfEntryEvaluation,previewTrade))',context);
+assert.equal(controls.get('nav.tabs button[data-tab="adv"]').textContent,'💬 لا توجد توصية');
 assert.equal(controls.get('#adviceText').textContent,'لا توجد إشارة رسمية نشطة');
 assert.equal(controls.get('#adviceKind').textContent,'No active official signal');
 assert.equal(controls.get('#activeSignalDetails').style.display,'none');

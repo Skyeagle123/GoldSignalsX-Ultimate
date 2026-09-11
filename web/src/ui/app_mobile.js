@@ -83,6 +83,7 @@ const marketAgeEl   = $('#marketAge');
 const feedSpreadEl  = $('#feedSpread');
 
 // تبويب النصيحة
+const adviceTabEl  = $('nav.tabs button[data-tab="adv"]');
 const adviceTextEl = $('#adviceText');
 const adviceKindEl = $('#adviceKind');
 const activeSignalDetailsEl = $('#activeSignalDetails');
@@ -1301,6 +1302,7 @@ function renderAdvice(ad){
   lastAdvice=ad;
   if (!adviceTextEl) return;
   const hasActiveOfficialSignal=isActiveOfficialSignal(activeSignal);
+  if (adviceTabEl) adviceTabEl.textContent=hasActiveOfficialSignal?'💬 النصيحة':'💬 لا توجد توصية';
   if (activeSignalDetailsEl) activeSignalDetailsEl.style.display=hasActiveOfficialSignal?'flex':'none';
   if (adviceKindEl) {
     adviceKindEl.textContent=hasActiveOfficialSignal?'Primary Trading Signal':'No active official signal';
