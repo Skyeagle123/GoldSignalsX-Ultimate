@@ -195,6 +195,19 @@
       </div>
       <div id="newsList" class="news-list"></div>
       <div id="newsEmpty" class="small" style="display:none;margin-top:12px">لا توجد أخبار مهمة وحديثة حالياً.</div>
+
+      <div class="report-details">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <div class="title">📅 المفكرة الاقتصادية</div>
+            <div class="small">أحداث اقتصادية رسمية مهمة، مستقلة عن حساب الميل الإخباري.</div>
+          </div>
+          <span class="chip">آخر تحديث: <b id="calendarUpdated">—</b></span>
+        </div>
+        <div id="calendarList" class="news-list"></div>
+        <div id="calendarEmpty" class="small" style="display:none;margin-top:12px">لا توجد أحداث اقتصادية مهمة قادمة أو حالية.</div>
+        <div id="calendarStatus" class="small" style="margin-top:8px"></div>
+      </div>
     </section>
 
     <!-- Indicators -->
@@ -447,7 +460,7 @@
 
   <!-- Lightweight Charts + App -->
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-  <script src="./src/ui/news.js?v=20260828-13"></script>
+  <script src="./src/ui/news.js?v=20260921-1"></script>
   <script src="./src/ui/app_mobile.js?v=20260908-2"></script>
   <script>
     // Presentation-only adapter: retain the legacy nine-column record layout

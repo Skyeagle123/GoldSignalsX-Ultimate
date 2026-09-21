@@ -84,6 +84,37 @@
     return container;
   }
 
+  function availableCalendarValue(value) {
+    return value !== null && value !== undefined && String(value).trim() !== '';
+  }
+
+  function renderCalendarEvent(event) {
+    const container = document.createElement('div');
+    const impact = String(event?.impact || '').toLowerCase();
+    container.className = `news-item ${impact === 'high' ? 'high' : impact === 'medium' ? 'medium' : ''}`.trim();
+    container.appendChild(textElement('div', String(event?.name || 'حدث اقتصادي'), 'news-title'));
+
+    const meta = document.createElement('div');
+    meta.className = 'news-meta';
+    meta.appendChild(textElement('span', 'Economic Calendar — مستقل عن News Bias'));
+    meta.appendChild(textElement('span', `Impact: ${impact ? impact.toUpperCase() : 'UNKNOWN'}`));
+    const time = String(event?.eventAtLocal || event?.eventAtUtc || '').trim();
+    if (time) meta.appendChild(textElement('span', time));
+    container.appendChild(meta);
+
+    const values = document.createElement('div');
+    values.className = 'news-meta';
+    for (const [label, value] of [
+      ['Actual', event?.actual],
+      ['Forecast', event?.forecast],
+      ['Previous', event?.previous]
+    ]) {
+      if (availableCalendarValue(value)) values.appendChild(textElement('span', `${label}: ${value}`));
+    }
+    if (values.children.length) container.appendChild(values);
+    return container;
+  }
+
   function showCriticalToast(brief) {
     const critical = (brief?.items || []).find(item => Number(item?.importance) >= 3 && item?.direction !== 'neutral');
     if (!critical) return;
@@ -149,13 +180,29 @@
     window.dispatchEvent(new CustomEvent('gsx:news-updated', { detail: null }));
   }
 
-  async function refreshNews() {
-    if (refreshRunning) return;
-    refreshRunning = true;
-    if (refs.button) {
-      refs.button.disabled = true;
-      refs.button.textContent = 'جاري التحديث…';
+  function renderCalendar(calendar) {
+    const events = (Array.isArray(calendar?.events) ? calendar.events : [])
+      .filter(event => String(event?.impact || '').toLowerCase() === 'high')
+      .sort((a, b) => Number(a?.eventAt || 0) - Number(b?.eventAt || 0));
+    if (refs.calendarList) {
+      refs.calendarList.replaceChildren();
+      for (const event of events) refs.calendarList.appendChild(renderCalendarEvent(event));
     }
+    if (refs.calendarEmpty) refs.calendarEmpty.style.display = events.length ? 'none' : 'block';
+    if (refs.calendarUpdated) refs.calendarUpdated.textContent = relativeAge(calendar?.updatedAt);
+    if (refs.calendarStatus) refs.calendarStatus.textContent = calendar?.stale
+      ? 'بيانات المفكرة قديمة مؤقتاً؛ لا تدخل في News Bias.'
+      : 'المفكرة مستقلة عن News Bias ولا تصدر Trading Signal.';
+  }
+
+  function renderCalendarUnavailable() {
+    if (refs.calendarList) refs.calendarList.replaceChildren();
+    if (refs.calendarEmpty) refs.calendarEmpty.style.display = 'block';
+    if (refs.calendarUpdated) refs.calendarUpdated.textContent = '—';
+    if (refs.calendarStatus) refs.calendarStatus.textContent = 'تعذّر تحديث المفكرة الاقتصادية حالياً؛ لا تدخل في News Bias.';
+  }
+
+  async function refreshNewsBrief() {
     try {
       const response = await fetch(`${getBase()}/news`, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -165,6 +212,34 @@
     } catch (error) {
       renderUnavailable('الأخبار غير متاحة حالياً؛ لن تدخل في حساب النصيحة حتى يعود المصدر.');
       console.warn('[GSX news]', error);
+    }
+  }
+
+  async function refreshCalendar() {
+    const now = Date.now();
+    const from = now - 60 * 60 * 1000;
+    const to = now + 7 * 24 * 60 * 60 * 1000;
+    try {
+      const response = await fetch(`${getBase()}/calendar?from=${from}&to=${to}&limit=50`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const calendar = await response.json();
+      if (!calendar?.ok) throw new Error('invalid calendar response');
+      renderCalendar(calendar);
+    } catch (error) {
+      renderCalendarUnavailable();
+      console.warn('[GSX calendar]', error);
+    }
+  }
+
+  async function refreshNews() {
+    if (refreshRunning) return;
+    refreshRunning = true;
+    if (refs.button) {
+      refs.button.disabled = true;
+      refs.button.textContent = 'جاري التحديث…';
+    }
+    try {
+      await Promise.all([refreshNewsBrief(), refreshCalendar()]);
     } finally {
       refreshRunning = false;
       if (refs.button) {
@@ -183,6 +258,10 @@
     refs.advice = $('#newsAdvice');
     refs.list = $('#newsList');
     refs.empty = $('#newsEmpty');
+    refs.calendarList = $('#calendarList');
+    refs.calendarEmpty = $('#calendarEmpty');
+    refs.calendarUpdated = $('#calendarUpdated');
+    refs.calendarStatus = $('#calendarStatus');
     refs.button = $('#btnNewsRefresh');
     refs.button?.addEventListener('click', refreshNews);
     $('#saveBase')?.addEventListener('click', () => setTimeout(refreshNews, 100));

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('./web/src/ui/app_mobile.js', import.meta.url), 'utf8');
 const newsSource = await readFile(new URL('./web/src/ui/news.js', import.meta.url), 'utf8');
+const indexSource = await readFile(new URL('./web/index.html', import.meta.url), 'utf8');
 const store = new Map();
 const performanceTableBody={innerHTML:'',children:[],appendChild(node){this.children.push(node);}};
 const forwardValidationTableBody={innerHTML:'',children:[],appendChild(node){this.children.push(node);}};
@@ -417,5 +418,77 @@ assert.match(newsSource,/News Alert — خبر مهم للذهب/,
   'the critical PWA news toast must be explicitly labeled');
 assert.match(newsSource,/ليس Trading Signal —/,
   'the critical PWA news toast message must reject Trading Signal semantics');
+
+assert.match(indexSource,/id="calendarList"/,'the News tab must contain an independent Economic Calendar section');
+assert.match(indexSource,/المفكرة الاقتصادية/,'the Economic Calendar section must be visibly labeled');
+
+function fakeElement() {
+  return {
+    textContent:'',className:'',style:{},children:[],disabled:false,value:'',
+    appendChild(node){this.children.push(node);return node;},
+    replaceChildren(...nodes){this.children=[...nodes];},
+    addEventListener(){},
+    classList:{add(){},remove(){}}
+  };
+}
+
+const newsControls = new Map([
+  '#base','#newsTop','#newsBias','#newsConfidence','#newsSafety','#newsUpdated',
+  '#newsAdvice','#newsList','#newsEmpty','#btnNewsRefresh','#calendarList',
+  '#calendarEmpty','#calendarUpdated','#calendarStatus','#saveBase','#toastClose'
+].map(selector=>[selector,fakeElement()]));
+let newsDomReady=()=>{};
+const requestedNewsUrls=[];
+const newsUiStore=new Map();
+const newsUiWindow={dispatchEvent(){},GSXNewsState:null};
+const newsUiNow=Date.now();
+const newsUiContext=vm.createContext({
+  console,Date,Math,Number,Array,Object,String,JSON,Promise,URL,
+  CustomEvent:class CustomEvent { constructor(type,init={}){this.type=type;this.detail=init.detail;} },
+  window:newsUiWindow,
+  document:{
+    hidden:false,
+    querySelector:selector=>newsControls.get(selector)||null,
+    addEventListener:(event,callback)=>{if(event==='DOMContentLoaded') newsDomReady=callback;},
+    createElement:()=>fakeElement()
+  },
+  localStorage:{
+    getItem:key=>newsUiStore.get(key)||null,
+    setItem:(key,value)=>newsUiStore.set(key,String(value))
+  },
+  setTimeout:()=>0,setInterval:()=>0,
+  fetch:async url=>{
+    requestedNewsUrls.push(String(url));
+    const parsed=new URL(String(url));
+    if(parsed.pathname==='/news') return {ok:true,json:async()=>({
+      ok:true,updatedAt:newsUiNow,goldBias:{direction:'bearish',confidence:89,advice:'اختبار'},
+      safety:{blockTechnicalSignal:false},items:[]
+    })};
+    if(parsed.pathname==='/calendar') return {ok:true,json:async()=>({
+      ok:true,updatedAt:newsUiNow,stale:false,events:[
+        {id:'jobless',name:'U.S. Initial Jobless Claims',impact:'high',eventAt:newsUiNow+60_000,eventAtLocal:'21/09/2026, 15:30 EEST',actual:'218K',forecast:'220K',previous:null},
+        {id:'minor',name:'Low-impact event',impact:'low',eventAt:newsUiNow+120_000,eventAtLocal:'21/09/2026, 15:31 EEST'}
+      ]
+    })};
+    throw new Error(`unexpected URL: ${url}`);
+  }
+});
+vm.runInContext(newsSource,newsUiContext);
+newsDomReady();
+await new Promise(resolve=>setImmediate(resolve));
+await new Promise(resolve=>setImmediate(resolve));
+
+assert.ok(requestedNewsUrls.some(url=>new URL(url).pathname==='/news'),'the News tab must fetch News Bias from /news');
+assert.ok(requestedNewsUrls.some(url=>new URL(url).pathname==='/calendar'),'the Economic Calendar section must fetch exclusively from /calendar');
+assert.equal(newsControls.get('#calendarList').children.length,1,'only important calendar events should be rendered');
+const flattenText=node=>[node.textContent,...node.children.flatMap(flattenText)].filter(Boolean).join(' | ');
+const calendarText=flattenText(newsControls.get('#calendarList').children[0]);
+assert.match(calendarText,/U\.S\. Initial Jobless Claims/);
+assert.match(calendarText,/Impact: HIGH/);
+assert.match(calendarText,/Actual: 218K/);
+assert.match(calendarText,/Forecast: 220K/);
+assert.doesNotMatch(calendarText,/Previous:/,'missing calendar values must be omitted, not invented');
+assert.equal(newsUiWindow.GSXNewsState.goldBias.confidence,89,'calendar events must not enter or alter News Bias');
+assert.equal(Object.hasOwn(newsUiWindow.GSXNewsState,'events'),false,'calendar data must remain separate from News Bias state');
 
 console.log('news advice tests passed');
